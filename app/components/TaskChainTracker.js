@@ -1,14 +1,39 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 
 import { API_URL, apiFetch } from "../lib/api";
 
+const isEmailTool = (t) => Boolean(t && (t === "send_email" || t.includes("email") || t.includes("gmail")));
+const isDriveTool = (t) => Boolean(t && (t === "upload_drive_file" || t.includes("drive")));
+const isWhatsAppTool = (t) => Boolean(t && (t.includes("whatsapp") || t === "send_file" || t === "send_message"));
+const isWorkerTool = (t) => Boolean(t && (t === "fork" || t.includes("worker")));
+
+const matchTools = (stepTool, targetTool) => {
+  if (!stepTool || !targetTool) return false;
+  if (stepTool === targetTool) return true;
+  if (isEmailTool(stepTool) && isEmailTool(targetTool)) return true;
+  if (isDriveTool(stepTool) && isDriveTool(targetTool)) return true;
+  if (isWhatsAppTool(stepTool) && isWhatsAppTool(targetTool)) return true;
+  if (isWorkerTool(stepTool) && isWorkerTool(targetTool)) return true;
+  return stepTool.includes(targetTool) || targetTool.includes(stepTool);
+};
+
+const formatResultString = (res) => {
+  if (!res) return "Action executed successfully";
+  if (typeof res === "string") return res;
+  if (res.sent) return `Email sent to ${res.to || "recipient"}`;
+  if (res.file_id || res.id) return `Uploaded to Google Drive (${res.name || "file"})`;
+  if (res.webViewLink) return `Uploaded to Google Drive (${res.name || "file"})`;
+  if (res.message) return res.message;
+  if (res.status && typeof res.status === "string") return `Status: ${res.status}`;
+  return "Action executed successfully";
+};
+
 export default function TaskChainTracker({ activePlan, planExecution, isOpenMobile = false, onCloseMobile }) {
   const [pipelineSteps, setPipelineSteps] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState(null);
-  const [completedCount, setCompletedCount] = useState(0);
   const lastPlanIdRef = useRef(null);
 
   // Initialize steps whenever activePlan changes (only when a new plan is introduced)
@@ -16,6 +41,7 @@ export default function TaskChainTracker({ activePlan, planExecution, isOpenMobi
     if (!activePlan || !activePlan.steps) {
       setPipelineSteps([]);
       lastPlanIdRef.current = null;
+      setActiveSessionId(null);
       return;
     }
 
@@ -37,7 +63,6 @@ export default function TaskChainTracker({ activePlan, planExecution, isOpenMobi
     }));
 
     setPipelineSteps(steps);
-    setCompletedCount(0);
     setActiveSessionId(null);
   }, [activePlan]);
 
@@ -59,18 +84,20 @@ export default function TaskChainTracker({ activePlan, planExecution, isOpenMobi
           return step;
         }
 
-        const exec = planExecution.results.find((r) => r.index === idx || r.tool === step.tool);
+        // Strictly match plan execution result by exact step index
+        const exec = planExecution.results.find((r) => r.index === idx);
         if (exec) {
           const isChained = exec.data?.status === "chained";
-          const isFork = step.tool === "fork" || step.tool?.includes("worker");
+          const isFork = isWorkerTool(step.tool);
           const sid = exec.data?.session_id || exec.data?.target_session || foundSid;
 
           let stepStatus = "completed";
-          let stepResult = exec.data;
+          let stepResult = formatResultString(exec.data);
           let subStep = null;
 
           if (!exec.success) {
             stepStatus = "failed";
+            stepResult = null;
           } else if (isChained) {
             stepStatus = "waiting";
             stepResult = null;
@@ -102,40 +129,35 @@ export default function TaskChainTracker({ activePlan, planExecution, isOpenMobi
 
   // Periodic status poll for workers & chained reactive hooks to ensure completion is detected immediately
   useEffect(() => {
-    const sid = activeSessionId || pipelineSteps.find((s) => s.sessionId)?.sessionId;
-    const hasUnfinishedSteps = pipelineSteps.some(
-      (s) =>
-        s.status === "running" ||
-        s.status === "executing" ||
-        s.status === "awaiting_plan_approval" ||
-        s.status === "waiting"
-    );
-
-    // Strictly NEVER poll or update when there is no active session (plan unconfirmed)
-    if (!sid || !hasUnfinishedSteps) return;
+    const sid = activeSessionId;
+    if (!sid) return;
 
     let isMounted = true;
 
     async function checkChainStatus() {
-      if (!sid) return;
+      if (!isMounted || !sid) return;
       try {
         // 1. Check worker session status
+        let workerIsDone = false;
         const res = await apiFetch(`/workers/${sid}`);
-        if (res.ok) {
+        if (res.ok && isMounted) {
           const data = await res.json();
-          if (data && isMounted) {
+          if (data) {
+            const isDone = data.status === "completed" || data.progress_percent === 100;
+            workerIsDone = isDone;
+
             setPipelineSteps((prev) =>
               prev.map((s) => {
-                if (s.tool === "fork" || s.tool?.includes("worker")) {
+                if (isWorkerTool(s.tool)) {
                   let nextStatus = s.status;
                   let nextSubStep = s.currentSubStep;
                   let nextResult = s.result;
 
-                  if (data.status === "completed" || data.progress_percent === 100) {
+                  if (isDone) {
                     nextStatus = "completed";
                     nextSubStep = null;
                     nextResult = "Worker completed successfully";
-                  } else if (data.status === "cancelled") {
+                  } else if (data.status === "cancelled" || data.status === "failed") {
                     nextStatus = "failed";
                     nextSubStep = null;
                   } else if (data.status === "awaiting_plan_approval") {
@@ -160,41 +182,34 @@ export default function TaskChainTracker({ activePlan, planExecution, isOpenMobi
           }
         }
 
-        // 2. Check reactive follow-up hooks status for this EXACT session only
+        // 2. Check reactive follow-up hooks status for this session
         const hooksRes = await apiFetch(`/events/hooks?session_id=${sid}`);
-        if (hooksRes.ok) {
+        if (hooksRes.ok && isMounted) {
           const hooks = await hooksRes.json();
-          if (Array.isArray(hooks) && hooks.length > 0 && isMounted) {
+          if (Array.isArray(hooks) && hooks.length > 0) {
             setPipelineSteps((prev) => {
               let updated = [...prev];
+              const forkIdx = updated.findIndex((s) => isWorkerTool(s.tool));
+
               for (const h of hooks) {
-                // Must strictly belong to the current target_session_id
                 if (h.target_session_id && h.target_session_id !== sid) continue;
 
+                // Match sequentially to follower steps after fork
                 const targetIdx = updated.findIndex(
-                  (s) =>
-                    (s.tool === h.action_tool ||
-                      s.tool?.includes(h.action_tool) ||
-                      h.action_tool?.includes(s.tool)) &&
+                  (s, idx) =>
+                    idx > forkIdx &&
+                    matchTools(s.tool, h.action_tool) &&
                     s.status !== "completed"
                 );
+
                 if (targetIdx !== -1) {
                   if (h.executed) {
-                    let resStr = "Action executed successfully";
-                    if (typeof h.result === "string") {
-                      resStr = h.result;
-                    } else if (h.result?.sent) {
-                      resStr = `Email sent to ${h.result.to || "recipient"}`;
-                    } else if (h.result?.file_id || h.result?.id) {
-                      resStr = `Uploaded to Google Drive (${h.result.name || "file"})`;
-                    } else if (h.result?.message) {
-                      resStr = h.result.message;
-                    }
                     updated[targetIdx] = {
                       ...updated[targetIdx],
                       status: "completed",
                       currentSubStep: null,
-                      result: resStr,
+                      result: formatResultString(h.result),
+                      error: null,
                     };
                   } else if (h.error) {
                     updated[targetIdx] = {
@@ -202,6 +217,12 @@ export default function TaskChainTracker({ activePlan, planExecution, isOpenMobi
                       status: "failed",
                       currentSubStep: null,
                       error: h.error,
+                    };
+                  } else if (workerIsDone && updated[targetIdx].status === "waiting") {
+                    updated[targetIdx] = {
+                      ...updated[targetIdx],
+                      status: "executing",
+                      currentSubStep: "Autonomous execution in progress...",
                     };
                   }
                 }
@@ -222,7 +243,7 @@ export default function TaskChainTracker({ activePlan, planExecution, isOpenMobi
       isMounted = false;
       clearInterval(interval);
     };
-  }, [pipelineSteps, activeSessionId]);
+  }, [activeSessionId]);
 
   // Listen to live SSE stream to update worker & chained hook completion in real time
   useEffect(() => {
@@ -245,7 +266,7 @@ export default function TaskChainTracker({ activePlan, planExecution, isOpenMobi
             );
             if (targetIdx === -1 && activeSessionId) {
               targetIdx = prev.findIndex(
-                (s) => (s.tool === "fork" || s.tool?.includes("worker")) && s.status !== "completed" && s.status !== "failed"
+                (s) => isWorkerTool(s.tool) && s.status !== "completed" && s.status !== "failed"
               );
             }
             if (targetIdx === -1) return prev;
@@ -269,7 +290,7 @@ export default function TaskChainTracker({ activePlan, planExecution, isOpenMobi
             );
             if (targetIdx === -1 && activeSessionId) {
               targetIdx = prev.findIndex(
-                (s) => (s.tool === "fork" || s.tool?.includes("worker")) && s.status !== "completed" && s.status !== "failed"
+                (s) => isWorkerTool(s.tool) && s.status !== "completed" && s.status !== "failed"
               );
             }
             if (targetIdx === -1) return prev;
@@ -295,7 +316,7 @@ export default function TaskChainTracker({ activePlan, planExecution, isOpenMobi
             );
             if (targetIdx === -1 && activeSessionId && activeSessionId === evtSessionId) {
               targetIdx = prev.findIndex(
-                (s) => (s.tool === "fork" || s.tool?.includes("worker")) && s.status !== "completed" && s.status !== "failed"
+                (s) => isWorkerTool(s.tool) && s.status !== "completed" && s.status !== "failed"
               );
             }
             if (targetIdx === -1) return prev;
@@ -326,11 +347,7 @@ export default function TaskChainTracker({ activePlan, planExecution, isOpenMobi
               (s) =>
                 s.status !== "completed" &&
                 s.status !== "failed" &&
-                (s.tool === toolName ||
-                  s.tool?.includes(toolName) ||
-                  toolName?.includes(s.tool) ||
-                  s.status === "waiting" ||
-                  s.status === "executing")
+                matchTools(s.tool, toolName)
             );
             if (targetIdx === -1) return prev;
 
@@ -338,7 +355,7 @@ export default function TaskChainTracker({ activePlan, planExecution, isOpenMobi
               if (idx === targetIdx) {
                 return {
                   ...step,
-                  status: step.tool === "fork" ? "running" : "executing",
+                  status: isWorkerTool(step.tool) ? "running" : "executing",
                   currentSubStep: `Executing ${step.tool}...`,
                 };
               }
@@ -350,16 +367,14 @@ export default function TaskChainTracker({ activePlan, planExecution, isOpenMobi
         if (type === "AUTONOMOUS_ACTION_EXECUTED") {
           const toolName = data.tool;
           const res = data.result;
-          const isFork = toolName === "fork";
+          const isFork = isWorkerTool(toolName);
           const newSessionId = res?.session_id;
           if (newSessionId) setActiveSessionId(newSessionId);
 
           setPipelineSteps((prev) => {
             let targetIdx = prev.findIndex(
               (s) =>
-                (s.tool === toolName ||
-                  s.tool?.includes(toolName) ||
-                  toolName?.includes(s.tool)) &&
+                matchTools(s.tool, toolName) &&
                 s.status !== "completed" &&
                 s.status !== "failed"
             );
@@ -375,21 +390,11 @@ export default function TaskChainTracker({ activePlan, planExecution, isOpenMobi
                     currentSubStep: "Worker running...",
                   };
                 }
-                let resStr = "Action executed successfully";
-                if (typeof res === "string") {
-                  resStr = res;
-                } else if (res?.sent) {
-                  resStr = `Email sent to ${res.to || "recipient"}`;
-                } else if (res?.file_id || res?.id) {
-                  resStr = `Uploaded to Google Drive (${res.name || "file"})`;
-                } else if (res?.message) {
-                  resStr = res.message;
-                }
                 return {
                   ...step,
                   status: "completed",
                   currentSubStep: null,
-                  result: resStr,
+                  result: formatResultString(res),
                 };
               }
               if (!isFork && idx === targetIdx + 1 && step.status === "waiting") {
@@ -405,7 +410,7 @@ export default function TaskChainTracker({ activePlan, planExecution, isOpenMobi
           const err = data.error;
           setPipelineSteps((prev) => {
             let targetIdx = prev.findIndex(
-              (s) => (s.status === "executing" || s.status === "running" || s.tool === toolName) && s.status !== "completed"
+              (s) => matchTools(s.tool, toolName) && s.status !== "completed"
             );
             if (targetIdx === -1) return prev;
             return prev.map((step, idx) => {
@@ -429,7 +434,7 @@ export default function TaskChainTracker({ activePlan, planExecution, isOpenMobi
     return () => {
       es.close();
     };
-  }, []);
+  }, [activeSessionId]);
 
   const totalSteps = pipelineSteps.length;
   const doneSteps = pipelineSteps.filter((s) => s.status === "completed").length;
@@ -454,9 +459,10 @@ export default function TaskChainTracker({ activePlan, planExecution, isOpenMobi
   }
 
   const getStepIcon = (step) => {
-    if (step.tool === "fork" || step.tool?.includes("worker")) return "🛠️";
-    if (step.tool?.includes("whatsapp") || step.tool === "send_file" || step.tool === "send_message") return "💬";
-    if (step.tool?.includes("email") || step.tool?.includes("gmail")) return "✉️";
+    if (isWorkerTool(step.tool)) return "🛠️";
+    if (isWhatsAppTool(step.tool)) return "💬";
+    if (isEmailTool(step.tool)) return "✉️";
+    if (isDriveTool(step.tool)) return "📁";
     return "⚡";
   };
 
@@ -643,4 +649,3 @@ export default function TaskChainTracker({ activePlan, planExecution, isOpenMobi
     </>
   );
 }
-
