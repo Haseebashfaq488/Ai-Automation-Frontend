@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 
-import { API_URL } from "../lib/api";
+import { API_URL, apiFetch } from "../lib/api";
 
 function formatTimestamp(ts) {
   if (!ts) return "";
@@ -34,20 +34,22 @@ export default function ActivityFeed({ isOpen, onClose }) {
     async function loadFeed() {
       try {
         const [feedRes, unreadRes] = await Promise.all([
-          fetch(`${API_URL}/events/feed?hours=24&limit=50`),
-          fetch(`${API_URL}/events/unread-counts`),
+          apiFetch("/events/feed?hours=24&limit=50"),
+          apiFetch("/events/unread-counts"),
         ]);
         if (feedRes.ok) {
           const feedData = await feedRes.json();
           const normalized = feedData.map((item) => ({
             id: item.id,
-            event_type: `${item.service.toUpperCase()}_INBOUND_DIGEST`,
+            event_type: `${(item.service || "general").toUpperCase()}_INBOUND_DIGEST`,
             title: item.title || item.sender || "Update",
             summary: item.snippet || item.title || "",
             timestamp: item.timestamp,
+            is_unread: Boolean(item.is_unread),
             data: {
               sender: item.sender,
               unread: item.is_unread ? 1 : 0,
+              owner: item.sender,
             },
           }));
           setEvents((prev) => {
@@ -70,12 +72,13 @@ export default function ActivityFeed({ isOpen, onClose }) {
   // 2. Fetch 7-day memory digests when switching to digests view
   useEffect(() => {
     if (viewMode === "digests") {
-      fetch(`${API_URL}/events/7day-digests?days=7`)
+      apiFetch("/events/7day-digests?days=7")
         .then((r) => r.json())
         .then((data) => setDigests(data))
         .catch(() => setDigests([]));
     }
   }, [viewMode]);
+
 
   // 3. SSE Live stream connection
   useEffect(() => {
