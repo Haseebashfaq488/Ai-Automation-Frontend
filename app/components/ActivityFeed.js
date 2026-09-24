@@ -10,7 +10,10 @@ function formatTimestamp(ts) {
   if (typeof ts === "string") {
     try {
       const d = new Date(ts);
-      return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      if (!isNaN(d.getTime())) {
+        return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      }
+      return ts;
     } catch {
       return ts;
     }
@@ -27,6 +30,7 @@ export default function ActivityFeed({ isOpen, onClose }) {
   const [unreadCounts, setUnreadCounts] = useState({ whatsapp: 0, gmail: 0, drive: 0 });
   const [connected, setConnected] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [selectedEvent, setSelectedEvent] = useState(null); // Selected chat/event modal
   const eventSourceRef = useRef(null);
 
   // 1. Initial fetch of persistent 24h feed & unread counts from backend
@@ -39,19 +43,32 @@ export default function ActivityFeed({ isOpen, onClose }) {
         ]);
         if (feedRes.ok) {
           const feedData = await feedRes.json();
-          const normalized = feedData.map((item) => ({
-            id: item.id,
-            event_type: `${(item.service || "general").toUpperCase()}_INBOUND_DIGEST`,
-            title: item.title || item.sender || "Update",
-            summary: item.snippet || item.title || "",
-            timestamp: item.timestamp,
-            is_unread: Boolean(item.is_unread),
-            data: {
-              sender: item.sender,
-              unread: item.is_unread ? 1 : 0,
-              owner: item.sender,
-            },
-          }));
+          const normalized = feedData.map((item) => {
+            let parsedDetails = null;
+            if (item.full_content) {
+              try {
+                parsedDetails = JSON.parse(item.full_content);
+              } catch {
+                parsedDetails = { raw_text: item.full_content };
+              }
+            }
+            return {
+              id: item.id,
+              event_type: `${(item.service || "general").toUpperCase()}_INBOUND_DIGEST`,
+              title: item.title || item.sender || "Update",
+              summary: item.snippet || item.title || "",
+              timestamp: item.timestamp,
+              is_unread: Boolean(item.is_unread),
+              full_content: item.full_content,
+              details: parsedDetails,
+              data: {
+                sender: item.sender,
+                unread: item.is_unread ? 1 : 0,
+                owner: item.sender,
+                ...parsedDetails,
+              },
+            };
+          });
           setEvents((prev) => {
             const map = new Map();
             [...normalized, ...prev].forEach((e) => map.set(e.id, e));
@@ -79,7 +96,6 @@ export default function ActivityFeed({ isOpen, onClose }) {
     }
   }, [viewMode]);
 
-
   // 3. SSE Live stream connection
   useEffect(() => {
     let es;
@@ -98,7 +114,6 @@ export default function ActivityFeed({ isOpen, onClose }) {
           const evt = JSON.parse(raw);
 
           setEvents((prev) => {
-            // Deduplicate by ID
             if (prev.some((item) => item.id === evt.id)) return prev;
             return [evt, ...prev].slice(0, 100);
           });
@@ -114,7 +129,6 @@ export default function ActivityFeed({ isOpen, onClose }) {
       es.onerror = () => {
         setConnected(false);
         es.close();
-        // Reconnect after 4s
         setTimeout(connect, 4000);
       };
     }
@@ -195,7 +209,7 @@ export default function ActivityFeed({ isOpen, onClose }) {
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-sm font-semibold text-white tracking-tight">Multi-Service Feed</h2>
+                <h2 className="text-sm font-semibold text-white tracking-tight">Activity Feed</h2>
                 <span
                   className={`h-2 w-2 rounded-full ${
                     connected
@@ -205,7 +219,7 @@ export default function ActivityFeed({ isOpen, onClose }) {
                   title={connected ? "Connected to live SSE stream" : "Reconnecting..."}
                 />
               </div>
-              <p className="text-[10px] text-zinc-400">24-Hour Stream & 7-Day Memory</p>
+              <p className="text-[10px] text-zinc-400">3-Day Window & 7-Day Memory</p>
             </div>
           </div>
 
@@ -232,15 +246,15 @@ export default function ActivityFeed({ isOpen, onClose }) {
 
         {/* Ambient Unread Badges Bar */}
         <div className="flex items-center justify-between px-3 py-1.5 bg-zinc-900/60 border-b border-zinc-800/60 text-[11px]">
-          <span className="text-zinc-400">Unread (24h):</span>
+          <span className="text-zinc-400">Active Unread:</span>
           <div className="flex items-center gap-2 font-mono">
-            <span className={`px-1.5 py-0.5 rounded text-[10px] ${unreadCounts.whatsapp > 0 ? "bg-emerald-950 text-emerald-300 border border-emerald-800/50" : "text-zinc-500"}`}>
+            <span className={`px-1.5 py-0.5 rounded text-[10px] ${unreadCounts.whatsapp > 0 ? "bg-emerald-950 text-emerald-300 border border-emerald-800/50 font-bold" : "text-zinc-500"}`}>
               💬 {unreadCounts.whatsapp || 0}
             </span>
-            <span className={`px-1.5 py-0.5 rounded text-[10px] ${unreadCounts.gmail > 0 ? "bg-amber-950 text-amber-300 border border-amber-800/50" : "text-zinc-500"}`}>
+            <span className={`px-1.5 py-0.5 rounded text-[10px] ${unreadCounts.gmail > 0 ? "bg-amber-950 text-amber-300 border border-amber-800/50 font-bold" : "text-zinc-500"}`}>
               ✉️ {unreadCounts.gmail || 0}
             </span>
-            <span className={`px-1.5 py-0.5 rounded text-[10px] ${unreadCounts.drive > 0 ? "bg-blue-950 text-blue-300 border border-blue-800/50" : "text-zinc-500"}`}>
+            <span className={`px-1.5 py-0.5 rounded text-[10px] ${unreadCounts.drive > 0 ? "bg-blue-950 text-blue-300 border border-blue-800/50 font-bold" : "text-zinc-500"}`}>
               📁 {unreadCounts.drive || 0}
             </span>
           </div>
@@ -289,11 +303,13 @@ export default function ActivityFeed({ isOpen, onClose }) {
                   const isDrive = evt.event_type?.includes("DRIVE");
                   const isAction = evt.event_type?.includes("AUTONOMOUS") || evt.event_type?.includes("TASK_CHAIN");
                   const sessionId = evt.data?.session_id || evt.metadata?.session_id;
+                  const activityBucket = evt.details?.activity_bucket;
 
                   return (
                     <div
                       key={evt.id}
-                      className="group relative rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-3 shadow-sm hover:border-zinc-700 transition"
+                      onClick={() => setSelectedEvent(evt)}
+                      className="group relative rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-3 shadow-sm hover:border-purple-500/50 hover:bg-zinc-900/90 transition cursor-pointer"
                     >
                       <div className="flex items-start justify-between gap-2 mb-1.5">
                         <div className="flex items-center gap-1.5 flex-wrap">
@@ -301,9 +317,15 @@ export default function ActivityFeed({ isOpen, onClose }) {
                             <span>{badge.icon}</span>
                             <span>{badge.label}</span>
                           </span>
+                          {activityBucket && (
+                            <span className="text-[9px] uppercase tracking-wider font-semibold text-zinc-400 bg-zinc-800/80 px-1.5 py-0.5 rounded border border-zinc-700/50">
+                              {activityBucket}
+                            </span>
+                          )}
                           {sessionId && (
                             <Link
                               href={`/worker/${sessionId}`}
+                              onClick={(e) => e.stopPropagation()}
                               className="text-[10px] font-mono text-purple-400 hover:text-purple-300 hover:underline"
                               title="View Worker Session"
                             >
@@ -316,22 +338,26 @@ export default function ActivityFeed({ isOpen, onClose }) {
                         </span>
                       </div>
 
-                      <h3 className="text-xs font-semibold text-zinc-100 line-clamp-1 mb-1">
+                      <h3 className="text-xs font-semibold text-zinc-100 line-clamp-1 mb-1 group-hover:text-purple-300 transition">
                         {evt.title}
                       </h3>
 
-                      <p className="text-xs text-zinc-300/90 leading-relaxed break-words">
+                      <p className="text-xs text-zinc-300/90 leading-relaxed line-clamp-2 break-words">
                         {evt.summary}
                       </p>
 
                       {/* Additional contextual chips */}
-                      {isWhatsApp && evt.data?.unread > 0 && (
-                        <div className="mt-2 flex items-center gap-2">
-                          <span className="inline-flex items-center rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-medium text-emerald-300">
+                      <div className="mt-2 flex items-center justify-between">
+                        {isWhatsApp && evt.data?.unread > 0 ? (
+                          <span className="inline-flex items-center rounded-full bg-emerald-500/20 border border-emerald-500/30 px-2 py-0.5 text-[10px] font-bold text-emerald-300">
                             ● {evt.data.unread} unread
                           </span>
-                        </div>
-                      )}
+                        ) : <span />}
+
+                        <span className="text-[10px] text-purple-400/80 group-hover:text-purple-300 font-medium flex items-center gap-1">
+                          Click to view details &rarr;
+                        </span>
+                      </div>
 
                       {isGmail && evt.data?.sender && (
                         <div className="mt-1.5 text-[11px] text-zinc-400 truncate">
@@ -410,7 +436,108 @@ export default function ActivityFeed({ isOpen, onClose }) {
           )}
         </div>
       </div>
+
+      {/* Expanded Interactive Detail Modal */}
+      {selectedEvent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="relative w-full max-w-lg max-h-[85vh] flex flex-col rounded-2xl border border-zinc-800 bg-zinc-950 shadow-2xl overflow-hidden">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-4 bg-zinc-900/50">
+              <div className="flex items-center gap-2.5">
+                <span className="text-xl">
+                  {selectedEvent.event_type?.includes("WHATSAPP") ? "💬" : selectedEvent.event_type?.includes("GMAIL") ? "✉️" : "📁"}
+                </span>
+                <div>
+                  <h3 className="text-sm font-bold text-white tracking-tight">
+                    {selectedEvent.title}
+                  </h3>
+                  <p className="text-[11px] text-zinc-400">
+                    {selectedEvent.details?.activity_bucket ? `Activity: ${selectedEvent.details.activity_bucket}` : "Activity Breakdown"} • {formatTimestamp(selectedEvent.timestamp)}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedEvent(null)}
+                className="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-800 hover:text-white transition"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              {/* Summary Card */}
+              <div className="rounded-xl border border-purple-900/40 bg-purple-950/20 p-3.5 space-y-1.5">
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-purple-300">
+                  <span>✨</span>
+                  <span>Jarvis Summary</span>
+                </div>
+                <p className="text-xs text-zinc-200 leading-relaxed">
+                  {selectedEvent.summary}
+                </p>
+              </div>
+
+              {/* Chat Message History if available */}
+              {selectedEvent.details?.messages && selectedEvent.details.messages.length > 0 ? (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between text-xs font-semibold text-zinc-400">
+                    <span>Chronological Messages (3-Day Horizon):</span>
+                    <span className="text-[10px] text-zinc-500 font-mono">{selectedEvent.details.messages.length} messages</span>
+                  </div>
+
+                  <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
+                    {selectedEvent.details.messages.map((m, idx) => {
+                      const fromMe = m.fromMe || m.from === "You";
+                      const author = fromMe ? "You" : (m.author || m.from || "Contact");
+                      return (
+                        <div
+                          key={idx}
+                          className={`flex flex-col ${fromMe ? "items-end" : "items-start"}`}
+                        >
+                          <div className="flex items-center gap-1.5 mb-1 px-1 text-[10px] text-zinc-400">
+                            <span className="font-semibold text-zinc-300">{author}</span>
+                            <span className="font-mono text-zinc-500">[{m.timestamp || m.time || "Recent"}]</span>
+                          </div>
+                          <div
+                            className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-xs leading-relaxed shadow-sm ${
+                              fromMe
+                                ? "bg-purple-600 text-white rounded-tr-xs"
+                                : "bg-zinc-800/90 text-zinc-100 border border-zinc-700/60 rounded-tl-xs"
+                            }`}
+                          >
+                            {m.body || (m.hasMedia ? "[Media / Attachment]" : "(empty message)")}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                /* Fallback Full Content View */
+                <div className="space-y-2">
+                  <span className="text-xs font-semibold text-zinc-400">Full Record Content:</span>
+                  <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-3.5 text-xs font-mono text-zinc-300 whitespace-pre-wrap leading-relaxed max-h-60 overflow-y-auto">
+                    {selectedEvent.full_content || selectedEvent.summary}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="border-t border-zinc-800 px-5 py-3 bg-zinc-900/40 flex items-center justify-between">
+              <span className="text-[11px] text-zinc-500">
+                {selectedEvent.is_unread ? "🔴 Unread conversation" : "✅ Caught up"}
+              </span>
+              <button
+                onClick={() => setSelectedEvent(null)}
+                className="rounded-lg bg-purple-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-purple-500 transition shadow-sm"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
-
