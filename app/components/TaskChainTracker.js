@@ -85,112 +85,114 @@ export default function TaskChainTracker({ activePlan, planExecution, isOpenMobi
     );
   }, [planExecution]);
 
-  // Periodic status poll for running workers to ensure completion is detected immediately
+  // Periodic status poll for workers & chained reactive hooks to ensure completion is detected immediately
   useEffect(() => {
-    const activeWorkerSteps = pipelineSteps.filter(
+    const sid = activeSessionId || pipelineSteps.find((s) => s.sessionId)?.sessionId;
+    const hasUnfinishedSteps = pipelineSteps.some(
       (s) =>
-        (s.status === "running" || s.status === "executing" || s.status === "awaiting_plan_approval") &&
-        s.sessionId &&
-        (s.tool === "fork" || s.tool?.includes("worker"))
+        s.status === "running" ||
+        s.status === "executing" ||
+        s.status === "awaiting_plan_approval" ||
+        s.status === "waiting"
     );
-    if (!activeWorkerSteps.length) return;
+
+    if (!sid || !hasUnfinishedSteps) return;
 
     let isMounted = true;
 
-    async function checkWorkerStatus() {
-      for (const step of activeWorkerSteps) {
-        if (!step.sessionId) continue;
-        try {
-          // 1. Check worker session status
-          const res = await apiFetch(`/workers/${step.sessionId}`);
-          if (res.ok) {
-            const data = await res.json();
-            if (data && isMounted) {
-              setPipelineSteps((prev) =>
-                prev.map((s) => {
-                  if (s.index === step.index) {
-                    let nextStatus = s.status;
-                    let nextSubStep = s.currentSubStep;
-                    let nextResult = s.result;
+    async function checkChainStatus() {
+      if (!sid) return;
+      try {
+        // 1. Check worker session status
+        const res = await apiFetch(`/workers/${sid}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data && isMounted) {
+            setPipelineSteps((prev) =>
+              prev.map((s) => {
+                if (s.tool === "fork" || s.tool?.includes("worker")) {
+                  let nextStatus = s.status;
+                  let nextSubStep = s.currentSubStep;
+                  let nextResult = s.result;
 
-                    if (data.status === "completed" || data.progress_percent === 100) {
-                      nextStatus = "completed";
-                      nextSubStep = null;
-                      nextResult = "Worker completed successfully";
-                    } else if (data.status === "cancelled") {
-                      nextStatus = "failed";
-                      nextSubStep = null;
-                    } else if (data.status === "awaiting_plan_approval") {
-                      nextStatus = "awaiting_plan_approval";
-                      nextSubStep = "Awaiting implementation plan approval...";
-                    } else if (data.status === "running") {
-                      nextStatus = "running";
-                      nextSubStep = data.current_step || "Worker executing...";
-                    }
+                  if (data.status === "completed" || data.progress_percent === 100) {
+                    nextStatus = "completed";
+                    nextSubStep = null;
+                    nextResult = "Worker completed successfully";
+                  } else if (data.status === "cancelled") {
+                    nextStatus = "failed";
+                    nextSubStep = null;
+                  } else if (data.status === "awaiting_plan_approval") {
+                    nextStatus = "awaiting_plan_approval";
+                    nextSubStep = "Awaiting implementation plan approval...";
+                  } else if (data.status === "running") {
+                    nextStatus = "running";
+                    nextSubStep = data.current_step || "Worker executing...";
+                  }
 
-                    return {
-                      ...s,
-                      status: nextStatus,
-                      currentSubStep: nextSubStep,
-                      result: nextResult,
+                  return {
+                    ...s,
+                    sessionId: sid,
+                    status: nextStatus,
+                    currentSubStep: nextSubStep,
+                    result: nextResult,
+                  };
+                }
+                return s;
+              })
+            );
+          }
+        }
+
+        // 2. Check reactive follow-up hooks status
+        const hooksRes = await apiFetch(`/events/hooks?session_id=${sid}`);
+        if (hooksRes.ok) {
+          const hooks = await hooksRes.json();
+          if (Array.isArray(hooks) && hooks.length > 0 && isMounted) {
+            setPipelineSteps((prev) => {
+              let updated = [...prev];
+              for (const h of hooks) {
+                const targetIdx = updated.findIndex(
+                  (s) => s.tool === h.action_tool && s.status !== "completed" && s.status !== "failed"
+                );
+                if (targetIdx !== -1) {
+                  if (h.executed) {
+                    updated[targetIdx] = {
+                      ...updated[targetIdx],
+                      status: "completed",
+                      currentSubStep: null,
+                      result:
+                        typeof h.result === "string"
+                          ? h.result
+                          : h.result?.message || "Action executed successfully",
+                    };
+                  } else if (h.error) {
+                    updated[targetIdx] = {
+                      ...updated[targetIdx],
+                      status: "failed",
+                      currentSubStep: null,
+                      error: h.error,
                     };
                   }
-                  return s;
-                })
-              );
-            }
-          }
-
-          // 2. Check reactive follow-up hooks status
-          const hooksRes = await apiFetch(`/events/hooks?session_id=${step.sessionId}`);
-          if (hooksRes.ok) {
-            const hooks = await hooksRes.json();
-            if (Array.isArray(hooks) && hooks.length > 0 && isMounted) {
-              setPipelineSteps((prev) => {
-                let updated = [...prev];
-                for (const h of hooks) {
-                  const targetIdx = updated.findIndex(
-                    (s) => s.tool === h.action_tool && s.status !== "completed" && s.status !== "failed"
-                  );
-                  if (targetIdx !== -1) {
-                    if (h.executed) {
-                      updated[targetIdx] = {
-                        ...updated[targetIdx],
-                        status: "completed",
-                        currentSubStep: null,
-                        result:
-                          typeof h.result === "string"
-                            ? h.result
-                            : h.result?.message || "Action executed successfully",
-                      };
-                    } else if (h.error) {
-                      updated[targetIdx] = {
-                        ...updated[targetIdx],
-                        status: "failed",
-                        currentSubStep: null,
-                        error: h.error,
-                      };
-                    }
-                  }
                 }
-                return updated;
-              });
-            }
+              }
+              return updated;
+            });
           }
-        } catch {
-          // ignore network hiccups
         }
+      } catch {
+        // ignore network hiccups
       }
     }
 
-    checkWorkerStatus();
-    const interval = setInterval(checkWorkerStatus, 2000);
+    checkChainStatus();
+    const interval = setInterval(checkChainStatus, 1500);
 
     return () => {
       isMounted = false;
       clearInterval(interval);
     };
-  }, [pipelineSteps]);
+  }, [pipelineSteps, activeSessionId]);
 
   // Listen to live SSE stream to update worker & chained hook completion in real time
   useEffect(() => {
