@@ -51,11 +51,12 @@ export default function WorkerPage() {
   const [resolution, setResolution] = useState(null);
   const [planText, setPlanText] = useState("");
   const [testResults, setTestResults] = useState(null);
+  const [handoverData, setHandoverData] = useState(null);
   const [intervention, setIntervention] = useState("");
   const [copiedId, setCopiedId] = useState(false);
   const [copiedStream, setCopiedStream] = useState(false);
   const [autoScrollStream, setAutoScrollStream] = useState(true);
-  const [activeTab, setActiveTab] = useState("terminal"); // "terminal" | "plan" | "trace" | "tests" | "artifacts" | "review"
+  const [activeTab, setActiveTab] = useState("terminal"); // "terminal" | "plan" | "trace" | "tests" | "artifacts" | "review" | "handover"
   const [notFound, setNotFound] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [approvingPlan, setApprovingPlan] = useState(false);
@@ -183,7 +184,21 @@ export default function WorkerPage() {
     }
   }, [sessionId]);
 
-  // ── 7. Poll worker state ─────────────────────────────────────────────
+  // ── 7. Fetch Session Handover & Knowledge Graph ───────────────────────
+  const fetchHandover = useCallback(async () => {
+    if (!sessionId) return;
+    try {
+      const res = await apiFetch(`/workers/${sessionId}/handover`);
+      if (res.ok) {
+        const data = await res.json();
+        setHandoverData(data);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [sessionId]);
+
+  // ── 8. Poll worker state ─────────────────────────────────────────────
   useEffect(() => {
     if (!sessionId) return;
     let cancelled = false;
@@ -208,6 +223,7 @@ export default function WorkerPage() {
             fetchArtifacts();
             fetchResolution();
             fetchTestResults();
+            fetchHandover();
           }
         }
       } catch {
@@ -219,6 +235,7 @@ export default function WorkerPage() {
     fetchArtifacts();
     fetchPlan();
     fetchTestResults();
+    fetchHandover();
 
     const id = setInterval(() => {
       poll();
@@ -228,7 +245,7 @@ export default function WorkerPage() {
       cancelled = true;
       clearInterval(id);
     };
-  }, [sessionId, fetchArtifacts, fetchResolution, fetchPlan, fetchTestResults]);
+  }, [sessionId, fetchArtifacts, fetchResolution, fetchPlan, fetchTestResults, fetchHandover]);
 
   // ── 4. Raw SSE live stream from CLI (/workers/{session_id}/stream) ──
   useEffect(() => {
@@ -283,12 +300,14 @@ export default function WorkerPage() {
           setStreamStatus("completed");
           fetchArtifacts();
           fetchResolution();
+          fetchHandover();
           rawSource.close();
         } else if (ev.type === "WORK_COMPLETED") {
           setStreamActive(false);
           setStreamStatus("completed");
           fetchArtifacts();
           fetchResolution();
+          fetchHandover();
           rawSource.close();
         }
       } catch {
@@ -308,7 +327,7 @@ export default function WorkerPage() {
     return () => {
       rawSource.close();
     };
-  }, [sessionId, state?.status, fetchArtifacts, fetchResolution]);
+  }, [sessionId, state?.status, fetchArtifacts, fetchResolution, fetchHandover]);
 
   // ── 5. High-Level SSE lifecycle event stream (/workers/{session_id}/events) ──
   useEffect(() => {
@@ -365,6 +384,7 @@ export default function WorkerPage() {
           fetchArtifacts();
           fetchResolution();
           fetchTestResults();
+          fetchHandover();
           setState((prev) => prev ? { ...prev, status: "completed", current_step: "Completed" } : prev);
           if (eventSourceRef.current) {
             eventSourceRef.current.close();
@@ -707,6 +727,24 @@ export default function WorkerPage() {
                     <span>🧠 Quality Review</span>
                   </button>
                 )}
+
+                {(handoverData?.has_handover || handoverData?.has_graphify || state?.status === "completed") && (
+                  <button
+                    onClick={() => setActiveTab("handover")}
+                    className={`inline-flex items-center gap-2 rounded-xl px-3.5 sm:px-4 py-2 text-xs font-semibold shrink-0 transition ${
+                      activeTab === "handover"
+                        ? "bg-purple-950/90 text-purple-200 border border-purple-500 shadow-md shadow-purple-950/40 ring-1 ring-purple-500/30"
+                        : "bg-zinc-900/80 text-purple-300 hover:bg-zinc-800 hover:text-white border border-purple-900/40"
+                    }`}
+                  >
+                    <span>🤝 Handover & Graph</span>
+                    {handoverData?.has_graphify && (
+                      <span className="rounded bg-sky-950/80 border border-sky-700/60 px-1.5 py-0.5 text-[10px] font-mono text-sky-300">
+                        Graphify
+                      </span>
+                    )}
+                  </button>
+                )}
               </div>
 
               {activeTab === "terminal" && (
@@ -797,6 +835,15 @@ export default function WorkerPage() {
             {/* TAB CONTENT 6: Review */}
             {activeTab === "review" && resolution && (
               <JarvisExecutiveReviewCard evaluation={resolution} />
+            )}
+
+            {/* TAB CONTENT 7: Session Handover & Knowledge Graph */}
+            {activeTab === "handover" && (
+              <HandoverAndGraphPanel
+                handoverData={handoverData}
+                sessionId={sessionId}
+                fsScope={state?.fs_scope}
+              />
             )}
 
             {/* Always display quality review on completion if available */}
@@ -1744,6 +1791,267 @@ function TestResultsCard({ testResults, state }) {
           </pre>
         </div>
       )}
+    </div>
+  );
+}
+
+function HandoverAndGraphPanel({ handoverData, sessionId, fsScope }) {
+  const [copiedHandover, setCopiedHandover] = useState(false);
+  const [copiedQuery, setCopiedQuery] = useState(null);
+  const [showRawMarkdown, setShowRawMarkdown] = useState(false);
+
+  if (!handoverData || (!handoverData.has_handover && !handoverData.has_graphify)) {
+    return (
+      <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-800/80 bg-zinc-900/30 p-12 text-center backdrop-blur-md">
+        <span className="text-3xl">🤝</span>
+        <h3 className="mt-3 text-sm font-semibold text-zinc-200">No Handover Brief Synthesized Yet</h3>
+        <p className="mt-1 text-xs text-zinc-500 max-w-sm">
+          Session handover briefs and AST graphify knowledge graphs are automatically generated when the worker completes its mission.
+        </p>
+      </div>
+    );
+  }
+
+  const { has_graphify, markdown, handover, folder_manifests } = handoverData;
+  const h = handover || {};
+
+  function copyText(text, key) {
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    if (key === "handover") {
+      setCopiedHandover(true);
+      setTimeout(() => setCopiedHandover(false), 2000);
+    } else {
+      setCopiedQuery(key);
+      setTimeout(() => setCopiedQuery(null), 2000);
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* ── 1. Knowledge Graph (graphify) Card ── */}
+      <div className="overflow-hidden rounded-2xl border border-sky-800/50 bg-gradient-to-br from-sky-950/40 via-zinc-900/90 to-zinc-950 p-5 sm:p-6 shadow-xl backdrop-blur-md">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800/80 pb-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-sky-500/40 bg-sky-950/80 text-lg shadow-inner text-sky-300">
+              🌐
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm sm:text-base font-semibold text-white">
+                  AST Knowledge Graph (graphify)
+                </h3>
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-semibold border ${
+                    has_graphify
+                      ? "border-emerald-500/50 bg-emerald-950/80 text-emerald-300 shadow-[0_0_8px_rgba(52,211,153,0.3)]"
+                      : "border-zinc-700 bg-zinc-800 text-zinc-400"
+                  }`}
+                >
+                  {has_graphify ? "✓ Ready & Indexed" : "Not Detected"}
+                </span>
+              </div>
+              <p className="text-xs text-zinc-400">
+                Persistent code intelligence for sub-second codebase comprehension & zero cold-start
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-xs text-zinc-400">Scope:</span>
+            <span className="rounded-lg border border-zinc-800 bg-zinc-950 px-2 py-1 font-mono text-xs text-purple-300">
+              {fsScope || handoverData.fs_scope || "D:/workspace"}
+            </span>
+          </div>
+        </div>
+
+        {/* Quick Graph Query Helpers */}
+        <div className="mt-4">
+          <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2">
+            Instant Subgraph Queries (CLI / Terminal)
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            {[
+              {
+                title: "Deep Architecture Query",
+                cmd: 'graphify query "Explain system architecture and entrypoints"',
+                key: "query",
+              },
+              {
+                title: "Shortest Dependency Path",
+                cmd: 'graphify path "worker" "engine"',
+                key: "path",
+              },
+              {
+                title: "Symbol / Concept Deep-Dive",
+                cmd: 'graphify explain "WorkerEngine"',
+                key: "explain",
+              },
+            ].map((q) => (
+              <div
+                key={q.key}
+                onClick={() => copyText(q.cmd, q.key)}
+                className="group cursor-pointer rounded-xl border border-zinc-800/80 bg-zinc-950/70 p-3 transition hover:border-sky-500/50 hover:bg-sky-950/20"
+              >
+                <div className="flex items-center justify-between text-[11px] font-medium text-zinc-400">
+                  <span>{q.title}</span>
+                  <span className="text-sky-400 opacity-0 group-hover:opacity-100 transition">
+                    {copiedQuery === q.key ? "✓ Copied" : "Copy"}
+                  </span>
+                </div>
+                <code className="mt-1.5 block font-mono text-[11px] text-sky-200 truncate">
+                  {q.cmd}
+                </code>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* ── 2. Living Documentation (Folder Manifests) ── */}
+      {folder_manifests && folder_manifests.length > 0 && (
+        <div className="rounded-2xl border border-purple-900/40 bg-zinc-900/70 p-5 shadow-lg backdrop-blur-md">
+          <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-base">📑</span>
+              <h4 className="text-sm font-semibold text-white">
+                Living Documentation (Tier 1 Manifests)
+              </h4>
+            </div>
+            <span className="rounded bg-purple-950/80 border border-purple-800/50 px-2 py-0.5 font-mono text-xs text-purple-300">
+              {folder_manifests.length} folders documented
+            </span>
+          </div>
+          <p className="mt-2 text-xs text-zinc-400">
+            Every touched directory maintains an isolated <code className="text-purple-300">README.md</code>. Future workers inspect these localized contracts without reading entire codebases.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {folder_manifests.map((manifest, idx) => (
+              <span
+                key={idx}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-950/90 px-2.5 py-1 font-mono text-xs text-zinc-300"
+              >
+                <span className="text-emerald-400">✓</span>
+                <span>{manifest}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── 3. Session Handover Brief Card ── */}
+      <div className="rounded-2xl border border-zinc-800/90 bg-zinc-900/80 p-5 sm:p-6 shadow-xl backdrop-blur-md">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800/80 pb-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-purple-700/50 bg-purple-950/80 text-base font-bold text-purple-300">
+              🤝
+            </div>
+            <div>
+              <h3 className="text-sm sm:text-base font-semibold text-white">
+                Session Handover Brief
+              </h3>
+              <p className="text-xs text-zinc-400">
+                Architectural continuity for subsequent workers and human review
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowRawMarkdown(!showRawMarkdown)}
+              className="rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-300 transition hover:bg-zinc-800"
+            >
+              {showRawMarkdown ? "Formatted View" : "View Raw Markdown"}
+            </button>
+            <button
+              onClick={() => copyText(markdown || JSON.stringify(handover, null, 2), "handover")}
+              className="rounded-lg border border-purple-700/60 bg-purple-950/70 px-3 py-1.5 text-xs font-semibold text-purple-200 transition hover:bg-purple-900/60"
+            >
+              {copiedHandover ? "✓ Copied!" : "📋 Copy Handover"}
+            </button>
+          </div>
+        </div>
+
+        {showRawMarkdown ? (
+          <div className="mt-4">
+            <pre className="max-h-96 overflow-y-auto rounded-xl border border-zinc-800 bg-zinc-950 p-4 font-mono text-xs text-zinc-300 whitespace-pre-wrap">
+              {markdown || JSON.stringify(handover, null, 2)}
+            </pre>
+          </div>
+        ) : (
+          <div className="mt-4 space-y-4">
+            {/* Objective */}
+            {h.objective && (
+              <div className="rounded-xl border border-zinc-800/60 bg-zinc-950/60 p-3.5">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                  Mission Objective
+                </span>
+                <p className="mt-1 text-xs text-zinc-200">{h.objective}</p>
+              </div>
+            )}
+
+            {/* Architecture Decisions */}
+            {h.architecture_decisions && h.architecture_decisions.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-purple-400 mb-1.5">
+                  Architectural Decisions & Invariants
+                </p>
+                <div className="space-y-1.5">
+                  {h.architecture_decisions.map((dec, i) => (
+                    <div
+                      key={i}
+                      className="flex items-start gap-2 rounded-lg border border-zinc-800/50 bg-zinc-950/40 p-2 text-xs text-zinc-300"
+                    >
+                      <span className="text-purple-400 font-bold shrink-0">✦</span>
+                      <span>{dec}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Key Artifacts & Files Modified */}
+            {h.created_files && h.created_files.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-1.5">
+                  Key Artifacts & Modified Files
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                  {h.created_files.map((f, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center gap-1.5 rounded-lg border border-zinc-800/60 bg-zinc-950/60 px-2.5 py-1.5 font-mono text-[11px] text-zinc-300 truncate"
+                    >
+                      <span className="text-sky-400">📄</span>
+                      <span className="truncate">{f}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Remaining / Next Worker Items */}
+            {h.remaining_work && h.remaining_work.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-amber-400 mb-1.5">
+                  Handover Notes for Next Worker
+                </p>
+                <div className="space-y-1">
+                  {h.remaining_work.map((item, i) => (
+                    <div
+                      key={i}
+                      className="flex items-start gap-2 rounded-lg border border-amber-900/30 bg-amber-950/20 p-2 text-xs text-amber-200"
+                    >
+                      <span className="text-amber-400 shrink-0">→</span>
+                      <span>{item}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

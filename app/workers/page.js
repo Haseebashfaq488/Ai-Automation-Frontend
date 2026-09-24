@@ -27,6 +27,26 @@ function ForkForm() {
   const [error, setError] = useState(null);
   const [isOpen, setIsOpen] = useState(true);
 
+  useEffect(() => {
+    try {
+      const savedScope = window.localStorage.getItem("jarvis_workspace_scope");
+      if (savedScope) {
+        setFsScope(savedScope);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  function handleScopeChange(val) {
+    setFsScope(val);
+    try {
+      window.localStorage.setItem("jarvis_workspace_scope", val);
+    } catch {
+      /* ignore */
+    }
+  }
+
   function applyPreset(type) {
     if (type === "implement") {
       setObjective("Implement new feature, write clean code, and verify tests pass");
@@ -45,13 +65,17 @@ function ForkForm() {
     setBusy(true);
     setError(null);
     try {
+      const scopeVal = fsScope.trim() || "D:/workspace";
+      try {
+        window.localStorage.setItem("jarvis_workspace_scope", scopeVal);
+      } catch {}
       const res = await apiFetch("/workers/fork", {
         method: "POST",
         body: JSON.stringify({
           objective: objective.trim(),
           worker_type: workerType,
           model: effectiveModel || undefined,
-          fs_scope: fsScope.trim() || "D:/workspace",
+          fs_scope: scopeVal,
           max_steps: Math.max(1, Number(maxSteps) || 20),
         }),
       });
@@ -129,13 +153,46 @@ function ForkForm() {
             </div>
 
             <div>
-              <label className="text-xs font-medium text-zinc-300">Filesystem Scope (`fs_scope` boundary)</label>
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium text-zinc-300">Filesystem Scope (`fs_scope` boundary)</label>
+                <div className="flex items-center gap-1.5 text-[10px]">
+                  <span className="text-zinc-500">Presets:</span>
+                  <button
+                    type="button"
+                    onClick={() => handleScopeChange("D:/workspace")}
+                    className={`rounded px-1.5 py-0.5 font-mono transition ${
+                      fsScope === "D:/workspace"
+                        ? "bg-purple-900/60 text-purple-200 border border-purple-700/60"
+                        : "bg-zinc-800/60 text-zinc-400 hover:text-zinc-200"
+                    }`}
+                  >
+                    workspace
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleScopeChange("D:/AI-Automation")}
+                    className={`rounded px-1.5 py-0.5 font-mono transition ${
+                      fsScope === "D:/AI-Automation"
+                        ? "bg-purple-900/60 text-purple-200 border border-purple-700/60"
+                        : "bg-zinc-800/60 text-zinc-400 hover:text-zinc-200"
+                    }`}
+                  >
+                    AI-Automation
+                  </button>
+                </div>
+              </div>
               <input
                 value={fsScope}
-                onChange={(e) => setFsScope(e.target.value)}
+                onChange={(e) => handleScopeChange(e.target.value)}
                 placeholder="Absolute path boundary the worker is restricted to"
                 className="mt-1 w-full rounded-xl border border-zinc-800 bg-zinc-950/80 px-3.5 py-2 font-mono text-xs text-zinc-200 outline-none transition focus:border-purple-600/70"
               />
+              <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-zinc-400">
+                <span className="text-purple-400">🤝</span>
+                <span>
+                  Workers in this scope automatically inherit prior <span className="font-mono text-zinc-300">SESSION_HANDOVER.md</span> and AST <span className="font-mono text-zinc-300">graphify</span> graphs.
+                </span>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

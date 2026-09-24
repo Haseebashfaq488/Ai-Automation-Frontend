@@ -46,13 +46,36 @@ export default function Home() {
   const [confirmedPlanIds, setConfirmedPlanIds] = useState(new Set());
   const [showFeed, setShowFeed] = useState(false);
   const [showChainMobile, setShowChainMobile] = useState(false);
+  const [fsScope, setFsScope] = useState("D:/workspace");
+  const [editingScope, setEditingScope] = useState(false);
+  const [customScopeInput, setCustomScopeInput] = useState("");
   const endRef = useRef(null);
 
-  // Load stored messages after mount to prevent hydration mismatch
+  // Load stored messages & workspace scope after mount to prevent hydration mismatch
   useEffect(() => {
     setMounted(true);
     setMessages(loadStoredMessages());
+    try {
+      const savedScope = window.localStorage.getItem("jarvis_workspace_scope");
+      if (savedScope) {
+        setFsScope(savedScope);
+      }
+    } catch {
+      /* ignore */
+    }
   }, []);
+
+  function changeScope(newScope) {
+    const val = (newScope || "").trim() || "D:/workspace";
+    setFsScope(val);
+    try {
+      window.localStorage.setItem("jarvis_workspace_scope", val);
+    } catch {
+      /* ignore */
+    }
+    setEditingScope(false);
+  }
+
 
   // Check backend health
   useEffect(() => {
@@ -112,7 +135,7 @@ export default function Home() {
     setBusy(true);
 
     try {
-      const result = await callAgent({ prompt });
+      const result = await callAgent({ prompt, fs_scope: fsScope });
       setMessages((m) =>
         m.map((msg) =>
           msg.id === botId ? { ...msg, thinking: false, data: result } : msg
@@ -138,7 +161,7 @@ export default function Home() {
     setMessages((m) => [...m, { id: botId, role: "bot", prompt, thinking: true }]);
 
     try {
-      const result = await callAgent({ prompt, confirm: true, plan_id: planId });
+      const result = await callAgent({ prompt, confirm: true, plan_id: planId, fs_scope: fsScope });
       setMessages((m) =>
         m.map((msg) =>
           msg.id === botId ? { ...msg, thinking: false, data: result } : msg
@@ -173,7 +196,7 @@ export default function Home() {
     try {
       await apiFetch("/workers/open-terminal", {
         method: "POST",
-        body: JSON.stringify({ directory: "D:/workspace" }),
+        body: JSON.stringify({ directory: fsScope || "D:/workspace" }),
       });
     } catch {
       /* ignore */
@@ -222,7 +245,9 @@ export default function Home() {
                 🌌 Antigravity Brain
               </span>
             </div>
-            <p className="hidden xs:block text-[11px] sm:text-xs text-zinc-400">Living Memory & Agent Orchestrator</p>
+            <p className="hidden xs:block text-[11px] sm:text-xs text-zinc-400">
+              Living Memory & Orchestrator • <span className="font-mono text-purple-300/90">{fsScope}</span>
+            </p>
           </div>
         </div>
 
@@ -329,6 +354,92 @@ export default function Home() {
       </div>
 
       <footer className="border-t border-zinc-800/80 bg-zinc-900/40 p-2.5 sm:p-4 backdrop-blur-md">
+        {/* Workspace Scope Bar */}
+        <div className="mx-auto mb-2.5 flex max-w-2xl items-center justify-between gap-2 px-1 text-xs">
+          <div className="flex items-center gap-1.5 overflow-x-auto py-0.5 scrollbar-none">
+            <span className="font-semibold text-zinc-400 flex items-center gap-1">
+              <span>📁</span>
+              <span>Scope:</span>
+            </span>
+
+            {editingScope ? (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  changeScope(customScopeInput);
+                }}
+                className="flex items-center gap-1.5"
+              >
+                <input
+                  type="text"
+                  value={customScopeInput}
+                  onChange={(e) => setCustomScopeInput(e.target.value)}
+                  placeholder="e.g. D:/my-project or ./frontend"
+                  className="rounded-lg border border-purple-500/60 bg-zinc-950 px-2 py-0.5 font-mono text-[11px] text-zinc-200 outline-none w-48 sm:w-64"
+                  autoFocus
+                />
+                <button
+                  type="submit"
+                  className="rounded bg-purple-600 px-2 py-0.5 text-[10px] font-semibold text-white hover:bg-purple-500"
+                >
+                  Save
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditingScope(false)}
+                  className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-400 hover:text-white"
+                >
+                  ✕
+                </button>
+              </form>
+            ) : (
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCustomScopeInput(fsScope);
+                    setEditingScope(true);
+                  }}
+                  title="Click to change workspace path"
+                  className="flex items-center gap-1 rounded-lg border border-purple-900/50 bg-purple-950/30 px-2 py-0.5 font-mono text-[11px] text-purple-300 transition hover:border-purple-600/70 hover:bg-purple-950/60"
+                >
+                  <span className="truncate max-w-[170px] sm:max-w-[260px]">{fsScope}</span>
+                  <span className="text-[10px] text-zinc-500">✏️</span>
+                </button>
+
+                {/* Quick presets */}
+                <button
+                  type="button"
+                  onClick={() => changeScope("D:/workspace")}
+                  className={`rounded-md px-1.5 py-0.5 text-[10px] font-mono transition ${
+                    fsScope === "D:/workspace"
+                      ? "border border-purple-700/60 bg-purple-950/80 text-purple-200"
+                      : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/60"
+                  }`}
+                >
+                  workspace
+                </button>
+                <button
+                  type="button"
+                  onClick={() => changeScope("D:/AI-Automation")}
+                  className={`rounded-md px-1.5 py-0.5 text-[10px] font-mono transition ${
+                    fsScope === "D:/AI-Automation"
+                      ? "border border-purple-700/60 bg-purple-950/80 text-purple-200"
+                      : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/60"
+                  }`}
+                >
+                  AI-Automation
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="hidden sm:flex items-center gap-1.5 text-[11px] text-zinc-500 shrink-0">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400/80" />
+            <span>Active Worker Boundary</span>
+          </div>
+        </div>
+
         <div className="mx-auto flex max-w-2xl items-center gap-2 sm:gap-2.5">
           <input
             value={input}
