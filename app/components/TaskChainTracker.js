@@ -111,64 +111,66 @@ export default function TaskChainTracker({ activePlan, planExecution, isOpenMobi
         s.status === "waiting"
     );
 
-    if (!hasUnfinishedSteps) return;
+    // Strictly NEVER poll or update when there is no active session (plan unconfirmed)
+    if (!sid || !hasUnfinishedSteps) return;
 
     let isMounted = true;
 
     async function checkChainStatus() {
+      if (!sid) return;
       try {
-        // 1. Check worker session status if sid is known
-        if (sid) {
-          const res = await apiFetch(`/workers/${sid}`);
-          if (res.ok) {
-            const data = await res.json();
-            if (data && isMounted) {
-              setPipelineSteps((prev) =>
-                prev.map((s) => {
-                  if (s.tool === "fork" || s.tool?.includes("worker")) {
-                    let nextStatus = s.status;
-                    let nextSubStep = s.currentSubStep;
-                    let nextResult = s.result;
+        // 1. Check worker session status
+        const res = await apiFetch(`/workers/${sid}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data && isMounted) {
+            setPipelineSteps((prev) =>
+              prev.map((s) => {
+                if (s.tool === "fork" || s.tool?.includes("worker")) {
+                  let nextStatus = s.status;
+                  let nextSubStep = s.currentSubStep;
+                  let nextResult = s.result;
 
-                    if (data.status === "completed" || data.progress_percent === 100) {
-                      nextStatus = "completed";
-                      nextSubStep = null;
-                      nextResult = "Worker completed successfully";
-                    } else if (data.status === "cancelled") {
-                      nextStatus = "failed";
-                      nextSubStep = null;
-                    } else if (data.status === "awaiting_plan_approval") {
-                      nextStatus = "awaiting_plan_approval";
-                      nextSubStep = "Awaiting implementation plan approval...";
-                    } else if (data.status === "running") {
-                      nextStatus = "running";
-                      nextSubStep = data.current_step || "Worker executing...";
-                    }
-
-                    return {
-                      ...s,
-                      sessionId: sid,
-                      status: nextStatus,
-                      currentSubStep: nextSubStep,
-                      result: nextResult,
-                    };
+                  if (data.status === "completed" || data.progress_percent === 100) {
+                    nextStatus = "completed";
+                    nextSubStep = null;
+                    nextResult = "Worker completed successfully";
+                  } else if (data.status === "cancelled") {
+                    nextStatus = "failed";
+                    nextSubStep = null;
+                  } else if (data.status === "awaiting_plan_approval") {
+                    nextStatus = "awaiting_plan_approval";
+                    nextSubStep = "Awaiting implementation plan approval...";
+                  } else if (data.status === "running") {
+                    nextStatus = "running";
+                    nextSubStep = data.current_step || "Worker executing...";
                   }
-                  return s;
-                })
-              );
-            }
+
+                  return {
+                    ...s,
+                    sessionId: sid,
+                    status: nextStatus,
+                    currentSubStep: nextSubStep,
+                    result: nextResult,
+                  };
+                }
+                return s;
+              })
+            );
           }
         }
 
-        // 2. Check reactive follow-up hooks status
-        const hooksUrl = sid ? `/events/hooks?session_id=${sid}` : `/events/hooks`;
-        const hooksRes = await apiFetch(hooksUrl);
+        // 2. Check reactive follow-up hooks status for this EXACT session only
+        const hooksRes = await apiFetch(`/events/hooks?session_id=${sid}`);
         if (hooksRes.ok) {
           const hooks = await hooksRes.json();
           if (Array.isArray(hooks) && hooks.length > 0 && isMounted) {
             setPipelineSteps((prev) => {
               let updated = [...prev];
               for (const h of hooks) {
+                // Must strictly belong to the current target_session_id
+                if (h.target_session_id && h.target_session_id !== sid) continue;
+
                 const targetIdx = updated.findIndex(
                   (s) => s.tool === h.action_tool && s.status !== "completed"
                 );
@@ -234,7 +236,7 @@ export default function TaskChainTracker({ activePlan, planExecution, isOpenMobi
             let targetIdx = prev.findIndex(
               (s) => s.sessionId && evtSessionId && s.sessionId === evtSessionId
             );
-            if (targetIdx === -1) {
+            if (targetIdx === -1 && activeSessionId) {
               targetIdx = prev.findIndex(
                 (s) => (s.tool === "fork" || s.tool?.includes("worker")) && s.status !== "completed" && s.status !== "failed"
               );
@@ -258,7 +260,7 @@ export default function TaskChainTracker({ activePlan, planExecution, isOpenMobi
             let targetIdx = prev.findIndex(
               (s) => s.sessionId && evtSessionId && s.sessionId === evtSessionId
             );
-            if (targetIdx === -1) {
+            if (targetIdx === -1 && activeSessionId) {
               targetIdx = prev.findIndex(
                 (s) => (s.tool === "fork" || s.tool?.includes("worker")) && s.status !== "completed" && s.status !== "failed"
               );
@@ -284,13 +286,10 @@ export default function TaskChainTracker({ activePlan, planExecution, isOpenMobi
             let targetIdx = prev.findIndex(
               (s) => s.sessionId && evtSessionId && s.sessionId === evtSessionId
             );
-            if (targetIdx === -1) {
+            if (targetIdx === -1 && activeSessionId && activeSessionId === evtSessionId) {
               targetIdx = prev.findIndex(
                 (s) => (s.tool === "fork" || s.tool?.includes("worker")) && s.status !== "completed" && s.status !== "failed"
               );
-            }
-            if (targetIdx === -1) {
-              targetIdx = prev.findIndex((s) => s.status !== "completed" && s.status !== "failed");
             }
             if (targetIdx === -1) return prev;
 
@@ -343,7 +342,7 @@ export default function TaskChainTracker({ activePlan, planExecution, isOpenMobi
 
           setPipelineSteps((prev) => {
             let targetIdx = prev.findIndex(
-              (s) => (s.status === "executing" || s.status === "running" || s.tool === toolName) && s.status !== "completed" && s.status !== "failed"
+              (s) => s.tool === toolName && s.status !== "completed" && s.status !== "failed"
             );
             if (targetIdx === -1) return prev;
 
