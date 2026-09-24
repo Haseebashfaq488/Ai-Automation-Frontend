@@ -125,6 +125,12 @@ export default function WorkerPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+      setState((prev) => prev ? {
+        ...prev,
+        status: "running",
+        current_step: "Job 2: Execute Implementation Plan",
+        plan_status: "approved",
+      } : prev);
       setPlanActionMsg({ type: "success", text: "✓ Implementation plan approved! Worker starting Job 2 (Execution)..." });
       setTimeout(() => setPlanActionMsg(null), 7000);
       setActiveTab("terminal");
@@ -147,6 +153,12 @@ export default function WorkerPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+      setState((prev) => prev ? {
+        ...prev,
+        status: "running",
+        current_step: "Revising Implementation Plan",
+        plan_status: "rejected",
+      } : prev);
       setPlanActionMsg({ type: "warning", text: "⚠ Feedback sent. Worker is revising the plan..." });
       setTimeout(() => setPlanActionMsg(null), 7000);
       setActiveTab("terminal");
@@ -311,9 +323,49 @@ export default function WorkerPage() {
         seen.add(key);
         setEvents((prev) => [...prev, evt]);
 
-        if (evt.type === "WORK_COMPLETED") {
+        if (evt.type === "PLAN_READY") {
+          fetchPlan();
+          setState((prev) => prev ? {
+            ...prev,
+            status: "awaiting_plan_approval",
+            current_step: "Awaiting Plan Approval",
+            plan_status: "awaiting_approval",
+            implementation_plan: evt.data?.plan || prev.implementation_plan,
+          } : prev);
+        } else if (evt.type === "PLAN_APPROVED") {
+          setState((prev) => prev ? {
+            ...prev,
+            status: "running",
+            current_step: "Job 2: Execute Implementation Plan",
+            plan_status: "approved",
+          } : prev);
+        } else if (evt.type === "PLAN_REJECTED") {
+          setState((prev) => prev ? {
+            ...prev,
+            status: "running",
+            current_step: "Revising Implementation Plan",
+            plan_status: "rejected",
+          } : prev);
+        } else if (evt.type === "STEP_STARTED") {
+          const stepName = evt.data?.step;
+          if (stepName) {
+            setState((prev) => prev ? { ...prev, status: "running", current_step: stepName } : prev);
+          }
+        } else if (evt.type === "STEP_COMPLETED") {
+          const stepName = evt.data?.step;
+          if (stepName) {
+            setState((prev) => {
+              if (!prev) return prev;
+              const completed = Array.isArray(prev.completed) ? [...prev.completed] : [];
+              if (!completed.includes(stepName)) completed.push(stepName);
+              return { ...prev, completed };
+            });
+          }
+        } else if (evt.type === "WORK_COMPLETED") {
           fetchArtifacts();
           fetchResolution();
+          fetchTestResults();
+          setState((prev) => prev ? { ...prev, status: "completed", current_step: "Completed" } : prev);
           if (eventSourceRef.current) {
             eventSourceRef.current.close();
           }
