@@ -31,8 +31,8 @@ npm install
 Create `.env.local`:
 
 ```env
-NEXT_PUBLIC_API_URL=
-NEXT_PUBLIC_WAKE_URL=
+NEXT_PUBLIC_API_URL="https://upstairs-earring-craftwork.ngrok-free.dev"
+NEXT_PUBLIC_WAKE_URL="https://uncurrent-unspuriously-samual.ngrok-free.dev/wake?token=mysecret123"
 ```
 
 ### 3. Run Development Server
