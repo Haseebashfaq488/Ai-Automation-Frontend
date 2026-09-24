@@ -172,17 +172,24 @@ export default function TaskChainTracker({ activePlan, planExecution, isOpenMobi
                 if (h.target_session_id && h.target_session_id !== sid) continue;
 
                 const targetIdx = updated.findIndex(
-                  (s) => s.tool === h.action_tool && s.status !== "completed"
+                  (s) =>
+                    (s.tool === h.action_tool ||
+                      s.tool?.includes(h.action_tool) ||
+                      h.action_tool?.includes(s.tool)) &&
+                    s.status !== "completed"
                 );
                 if (targetIdx !== -1) {
                   if (h.executed) {
-                    const resStr =
-                      typeof h.result === "string"
-                        ? h.result
-                        : h.result?.message ||
-                          (h.result?.sent
-                            ? `Email sent to ${h.result.to}`
-                            : "Action executed successfully");
+                    let resStr = "Action executed successfully";
+                    if (typeof h.result === "string") {
+                      resStr = h.result;
+                    } else if (h.result?.sent) {
+                      resStr = `Email sent to ${h.result.to || "recipient"}`;
+                    } else if (h.result?.file_id || h.result?.id) {
+                      resStr = `Uploaded to Google Drive (${h.result.name || "file"})`;
+                    } else if (h.result?.message) {
+                      resStr = h.result.message;
+                    }
                     updated[targetIdx] = {
                       ...updated[targetIdx],
                       status: "completed",
@@ -316,7 +323,14 @@ export default function TaskChainTracker({ activePlan, planExecution, isOpenMobi
           const toolName = data.tool;
           setPipelineSteps((prev) => {
             let targetIdx = prev.findIndex(
-              (s) => s.status !== "completed" && s.status !== "failed" && (s.tool === toolName || s.status === "waiting" || s.status === "executing")
+              (s) =>
+                s.status !== "completed" &&
+                s.status !== "failed" &&
+                (s.tool === toolName ||
+                  s.tool?.includes(toolName) ||
+                  toolName?.includes(s.tool) ||
+                  s.status === "waiting" ||
+                  s.status === "executing")
             );
             if (targetIdx === -1) return prev;
 
@@ -342,7 +356,12 @@ export default function TaskChainTracker({ activePlan, planExecution, isOpenMobi
 
           setPipelineSteps((prev) => {
             let targetIdx = prev.findIndex(
-              (s) => s.tool === toolName && s.status !== "completed" && s.status !== "failed"
+              (s) =>
+                (s.tool === toolName ||
+                  s.tool?.includes(toolName) ||
+                  toolName?.includes(s.tool)) &&
+                s.status !== "completed" &&
+                s.status !== "failed"
             );
             if (targetIdx === -1) return prev;
 
@@ -356,13 +375,16 @@ export default function TaskChainTracker({ activePlan, planExecution, isOpenMobi
                     currentSubStep: "Worker running...",
                   };
                 }
-                const resStr =
-                  typeof res === "string"
-                    ? res
-                    : res?.message ||
-                      (res?.sent
-                        ? `Email sent to ${res.to}`
-                        : "Action executed successfully");
+                let resStr = "Action executed successfully";
+                if (typeof res === "string") {
+                  resStr = res;
+                } else if (res?.sent) {
+                  resStr = `Email sent to ${res.to || "recipient"}`;
+                } else if (res?.file_id || res?.id) {
+                  resStr = `Uploaded to Google Drive (${res.name || "file"})`;
+                } else if (res?.message) {
+                  resStr = res.message;
+                }
                 return {
                   ...step,
                   status: "completed",
