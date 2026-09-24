@@ -24,6 +24,7 @@ const EVENT_STYLE = {
 
 const STATUS_STYLE = {
   running: "border-sky-500/30 bg-sky-950/60 text-sky-300",
+  awaiting_plan_approval: "border-amber-500/60 bg-amber-950/80 text-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.25)]",
   completed: "border-emerald-500/30 bg-emerald-950/60 text-emerald-300",
   cancelled: "border-amber-500/30 bg-amber-950/60 text-amber-300",
   idle: "border-zinc-700/40 bg-zinc-900/60 text-zinc-400",
@@ -48,13 +49,18 @@ export default function WorkerPage() {
   const [streamStatus, setStreamStatus] = useState("connecting");
   const [artifacts, setArtifacts] = useState([]);
   const [resolution, setResolution] = useState(null);
+  const [planText, setPlanText] = useState("");
+  const [testResults, setTestResults] = useState(null);
   const [intervention, setIntervention] = useState("");
   const [copiedId, setCopiedId] = useState(false);
   const [copiedStream, setCopiedStream] = useState(false);
   const [autoScrollStream, setAutoScrollStream] = useState(true);
-  const [activeTab, setActiveTab] = useState("terminal"); // "terminal" | "trace" | "artifacts" | "review"
+  const [activeTab, setActiveTab] = useState("terminal"); // "terminal" | "plan" | "trace" | "tests" | "artifacts" | "review"
   const [notFound, setNotFound] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [approvingPlan, setApprovingPlan] = useState(false);
+  const [rejectingPlan, setRejectingPlan] = useState(false);
+  const [planActionMsg, setPlanActionMsg] = useState(null);
 
   const eventsEndRef = useRef(null);
   const streamEndRef = useRef(null);
@@ -75,7 +81,83 @@ export default function WorkerPage() {
     }
   }, [sessionId]);
 
-  // ── 2. Fetch Jarvis Executive Resolution ──────────────────────────────
+  // ── 2. Fetch Implementation Plan (Job 1 Deliverable) ──────────────────
+  const fetchPlan = useCallback(async () => {
+    if (!sessionId) return;
+    try {
+      const res = await apiFetch(`/workers/${sessionId}/plan`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.plan) {
+          setPlanText(data.plan);
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [sessionId]);
+
+  // ── 3. Fetch Self-Testing Results (Job 3 Deliverable) ─────────────────
+  const fetchTestResults = useCallback(async () => {
+    if (!sessionId) return;
+    try {
+      const res = await apiFetch(`/workers/${sessionId}/test-results`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.test_results) {
+          setTestResults(data.test_results);
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [sessionId]);
+
+  // ── 4. Plan Approval Action ───────────────────────────────────────────
+  const approvePlan = useCallback(async (customPlan) => {
+    setApprovingPlan(true);
+    setPlanActionMsg(null);
+    try {
+      const payload = customPlan !== undefined ? { plan: customPlan } : (planText ? { plan: planText } : {});
+      const res = await apiFetch(`/workers/${sessionId}/approve-plan`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+      setPlanActionMsg({ type: "success", text: "✓ Implementation plan approved! Worker starting Job 2 (Execution)..." });
+      setTimeout(() => setPlanActionMsg(null), 7000);
+      setActiveTab("terminal");
+    } catch (e) {
+      setPlanActionMsg({ type: "error", text: `Approval failed: ${e.message}` });
+    } finally {
+      setApprovingPlan(false);
+    }
+  }, [sessionId, planText]);
+
+  // ── 5. Plan Revision Request Action ───────────────────────────────────
+  const rejectPlan = useCallback(async (feedback) => {
+    if (!feedback || !feedback.trim()) return;
+    setRejectingPlan(true);
+    setPlanActionMsg(null);
+    try {
+      const res = await apiFetch(`/workers/${sessionId}/reject-plan`, {
+        method: "POST",
+        body: JSON.stringify({ feedback: feedback.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+      setPlanActionMsg({ type: "warning", text: "⚠ Feedback sent. Worker is revising the plan..." });
+      setTimeout(() => setPlanActionMsg(null), 7000);
+      setActiveTab("terminal");
+    } catch (e) {
+      setPlanActionMsg({ type: "error", text: `Revision request failed: ${e.message}` });
+    } finally {
+      setRejectingPlan(false);
+    }
+  }, [sessionId]);
+
+  // ── 6. Fetch Jarvis Executive Resolution ──────────────────────────────
   const fetchResolution = useCallback(async () => {
     if (!sessionId) return;
     try {
@@ -89,7 +171,7 @@ export default function WorkerPage() {
     }
   }, [sessionId]);
 
-  // ── 3. Poll worker state ─────────────────────────────────────────────
+  // ── 7. Poll worker state ─────────────────────────────────────────────
   useEffect(() => {
     if (!sessionId) return;
     let cancelled = false;
@@ -105,11 +187,15 @@ export default function WorkerPage() {
         const data = await res.json();
         if (!cancelled) {
           setState(data);
+          if (data.status === "awaiting_plan_approval" || data.plan_status === "ready" || data.implementation_plan) {
+            fetchPlan();
+          }
           if (data.status === "completed" || data.status === "cancelled") {
             setStreamActive(false);
             setStreamStatus("completed");
             fetchArtifacts();
             fetchResolution();
+            fetchTestResults();
           }
         }
       } catch {
@@ -119,6 +205,8 @@ export default function WorkerPage() {
 
     poll();
     fetchArtifacts();
+    fetchPlan();
+    fetchTestResults();
 
     const id = setInterval(() => {
       poll();
@@ -128,7 +216,7 @@ export default function WorkerPage() {
       cancelled = true;
       clearInterval(id);
     };
-  }, [sessionId, fetchArtifacts, fetchResolution]);
+  }, [sessionId, fetchArtifacts, fetchResolution, fetchPlan, fetchTestResults]);
 
   // ── 4. Raw SSE live stream from CLI (/workers/{session_id}/stream) ──
   useEffect(() => {
@@ -453,6 +541,19 @@ export default function WorkerPage() {
             {/* Task Contract Card */}
             <ContractCard state={state} sessionId={sessionId} />
 
+            {/* Prominent Plan Approval Banner if Worker is Paused Awaiting Plan Approval */}
+            {state?.status === "awaiting_plan_approval" && (
+              <PlanApprovalCard
+                planText={planText}
+                state={state}
+                onApprove={approvePlan}
+                onReject={rejectPlan}
+                approving={approvingPlan}
+                rejecting={rejectingPlan}
+                actionMsg={planActionMsg}
+              />
+            )}
+
             {/* Navigation Tabs */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-zinc-800/80 pb-2 gap-2">
               <div className="flex items-center gap-2 overflow-x-auto scrollbar-none pb-1 sm:pb-0 flex-nowrap">
@@ -474,6 +575,27 @@ export default function WorkerPage() {
                 </button>
 
                 <button
+                  onClick={() => setActiveTab("plan")}
+                  className={`inline-flex items-center gap-2 rounded-xl px-3.5 sm:px-4 py-2 text-xs font-semibold shrink-0 transition ${
+                    activeTab === "plan"
+                      ? "bg-amber-950/80 text-amber-200 border border-amber-600/80 shadow-md shadow-amber-950/40"
+                      : state?.status === "awaiting_plan_approval"
+                      ? "bg-amber-950/40 text-amber-300 border border-amber-500/50 animate-pulse"
+                      : "bg-zinc-900/80 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 border border-zinc-800"
+                  }`}
+                >
+                  <span>📑 Plan</span>
+                  {state?.status === "awaiting_plan_approval" && (
+                    <span className="h-2 w-2 rounded-full bg-amber-400 animate-ping" />
+                  )}
+                  {planText && (
+                    <span className="rounded bg-amber-900/60 px-1.5 py-0.5 text-[10px] font-mono text-amber-300">
+                      {state?.status === "awaiting_plan_approval" ? "Review" : "Ready"}
+                    </span>
+                  )}
+                </button>
+
+                <button
                   onClick={() => setActiveTab("trace")}
                   className={`inline-flex items-center gap-2 rounded-xl px-3.5 sm:px-4 py-2 text-xs font-semibold shrink-0 transition ${
                     activeTab === "trace"
@@ -486,6 +608,24 @@ export default function WorkerPage() {
                     {events.filter((e) => e.type.startsWith("STEP_")).length}
                   </span>
                 </button>
+
+                {(testResults || state?.test_results || state?.status === "completed") && (
+                  <button
+                    onClick={() => setActiveTab("tests")}
+                    className={`inline-flex items-center gap-2 rounded-xl px-3.5 sm:px-4 py-2 text-xs font-semibold shrink-0 transition ${
+                      activeTab === "tests"
+                        ? "bg-emerald-950/80 text-emerald-200 border border-emerald-600 shadow-md"
+                        : "bg-zinc-900/80 text-emerald-400/80 hover:bg-zinc-800 hover:text-emerald-300 border border-emerald-900/40"
+                    }`}
+                  >
+                    <span>🧪 Verification</span>
+                    {testResults?.passed !== undefined && (
+                      <span className="rounded bg-emerald-900/60 px-1.5 py-0.5 text-[10px] font-mono text-emerald-300">
+                        {testResults.passed}/{testResults.total}
+                      </span>
+                    )}
+                  </button>
+                )}
 
                 {artifacts.length > 0 && (
                   <button
@@ -552,7 +692,21 @@ export default function WorkerPage() {
               />
             )}
 
-            {/* TAB CONTENT 2: Execution Trace Steps */}
+            {/* TAB CONTENT 2: Implementation Plan Review & Modification */}
+            {activeTab === "plan" && (
+              <PlanApprovalCard
+                planText={planText}
+                state={state}
+                onApprove={approvePlan}
+                onReject={rejectPlan}
+                approving={approvingPlan}
+                rejecting={rejectingPlan}
+                actionMsg={planActionMsg}
+                fullPageMode={true}
+              />
+            )}
+
+            {/* TAB CONTENT 3: Execution Trace Steps */}
             {activeTab === "trace" && (
               <div className="flex flex-col gap-3">
                 <div className="flex items-center justify-between px-1">
@@ -578,12 +732,17 @@ export default function WorkerPage() {
               </div>
             )}
 
-            {/* TAB CONTENT 3: Artifacts */}
+            {/* TAB CONTENT 4: Self-Testing & Verification Results */}
+            {activeTab === "tests" && (
+              <TestResultsCard testResults={testResults || state?.test_results} state={state} />
+            )}
+
+            {/* TAB CONTENT 5: Artifacts */}
             {activeTab === "artifacts" && (
               <ArtifactsPanel artifacts={artifacts} sessionId={sessionId} />
             )}
 
-            {/* TAB CONTENT 4: Review */}
+            {/* TAB CONTENT 6: Review */}
             {activeTab === "review" && resolution && (
               <JarvisExecutiveReviewCard evaluation={resolution} />
             )}
@@ -1203,6 +1362,334 @@ function ResultCard({ event, artifactsCount }) {
               </span>
             ))}
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Plan Approval & Review Card Component (Job 1 Gate) ─────────────────
+function PlanApprovalCard({
+  planText,
+  state,
+  onApprove,
+  onReject,
+  approving,
+  rejecting,
+  actionMsg,
+  fullPageMode = false,
+}) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [draftPlan, setDraftPlan] = useState(planText || "");
+  const [feedback, setFeedback] = useState("");
+  const [showFeedbackBox, setShowFeedbackBox] = useState(false);
+
+  // Sync draftPlan when planText changes
+  useEffect(() => {
+    if (planText) setDraftPlan(planText);
+  }, [planText]);
+
+  const isAwaiting = state?.status === "awaiting_plan_approval";
+
+  return (
+    <div
+      className={`rounded-2xl border transition-all ${
+        isAwaiting
+          ? "border-amber-500/60 bg-gradient-to-br from-amber-950/40 via-zinc-900/90 to-zinc-950/95 shadow-2xl shadow-amber-950/30 ring-1 ring-amber-500/30"
+          : "border-zinc-800/80 bg-zinc-900/80 shadow-xl"
+      } p-4 sm:p-6 backdrop-blur-md`}
+    >
+      {/* Header Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800/80 pb-4">
+        <div className="flex items-center gap-3">
+          <div
+            className={`flex h-9 w-9 items-center justify-center rounded-xl border text-base font-bold shadow-inner shrink-0 ${
+              isAwaiting
+                ? "border-amber-500/50 bg-amber-900/70 text-amber-200"
+                : "border-purple-800/50 bg-purple-950/70 text-purple-200"
+            }`}
+          >
+            📑
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm sm:text-base font-semibold text-white">
+                Implementation Plan
+              </h3>
+              <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] font-mono text-zinc-400">
+                Job 1 of 3
+              </span>
+            </div>
+            <p className="text-xs text-zinc-400">
+              {isAwaiting
+                ? "Worker formulated this strategy and is awaiting your explicit review & approval."
+                : "Strategy generated and executed for this task."}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          {isAwaiting ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/60 bg-amber-950/80 px-3 py-1 text-xs font-semibold text-amber-300 animate-pulse">
+              <span className="h-2 w-2 rounded-full bg-amber-400" />
+              <span>Awaiting Approval</span>
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/40 bg-emerald-950/60 px-3 py-1 text-xs font-semibold text-emerald-300">
+              <span>✓ Plan Active / Approved</span>
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Action Notification Toast */}
+      {actionMsg && (
+        <div
+          className={`mt-4 rounded-xl border p-3 text-xs font-medium ${
+            actionMsg.type === "success"
+              ? "border-emerald-800/80 bg-emerald-950/60 text-emerald-300"
+              : actionMsg.type === "warning"
+              ? "border-amber-800/80 bg-amber-950/60 text-amber-300"
+              : "border-red-800/80 bg-red-950/60 text-red-300"
+          }`}
+        >
+          {actionMsg.text}
+        </div>
+      )}
+
+      {/* Controls Bar for Plan Editing and Actions */}
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-b border-zinc-800/60 pb-3 text-xs">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setIsEditing(false)}
+            className={`rounded-lg px-3 py-1.5 font-medium transition ${
+              !isEditing
+                ? "bg-zinc-800 text-white shadow-sm border border-zinc-700"
+                : "text-zinc-400 hover:text-white"
+            }`}
+          >
+            👁️ Preview Plan
+          </button>
+          <button
+            onClick={() => setIsEditing(true)}
+            className={`rounded-lg px-3 py-1.5 font-medium transition ${
+              isEditing
+                ? "bg-zinc-800 text-white shadow-sm border border-zinc-700"
+                : "text-zinc-400 hover:text-white"
+            }`}
+          >
+            ✏️ Edit Markdown
+          </button>
+        </div>
+
+        {isAwaiting && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => setShowFeedbackBox(!showFeedbackBox)}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-zinc-700 bg-zinc-800/80 px-3 py-1.5 font-medium text-zinc-300 transition hover:border-amber-600/50 hover:bg-zinc-800 hover:text-white"
+            >
+              <span>💬</span>
+              <span>{showFeedbackBox ? "Hide Revisions" : "Request Changes"}</span>
+            </button>
+
+            <button
+              onClick={() => onApprove(isEditing ? draftPlan : undefined)}
+              disabled={approving || rejecting}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-1.5 font-semibold text-white shadow-lg shadow-emerald-950/40 transition hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50"
+            >
+              {approving ? (
+                <>
+                  <span className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  <span>Approving...</span>
+                </>
+              ) : (
+                <>
+                  <span>✓</span>
+                  <span>{isEditing ? "Save & Approve Plan" : "Approve & Start Execution"}</span>
+                </>
+              )}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Revisions & Feedback Input Box */}
+      {showFeedbackBox && isAwaiting && (
+        <div className="mt-4 rounded-xl border border-amber-800/50 bg-amber-950/20 p-4 animate-fade-in">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-wider text-amber-300">
+              Provide Revision Directives
+            </p>
+            <span className="text-[11px] text-zinc-400">Worker will re-plan based on this feedback</span>
+          </div>
+          <div className="mt-2.5 flex items-center gap-2">
+            <input
+              value={feedback}
+              onChange={(e) => setFeedback(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && onReject(feedback)}
+              placeholder="e.g. Add validation for edge cases, also include unit tests in tests/unit/..."
+              className="flex-1 rounded-xl border border-zinc-700 bg-zinc-950 px-3.5 py-2 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-amber-500"
+            />
+            <VoiceInput
+              onTranscriptInsert={(text) =>
+                setFeedback((prev) => (prev ? `${prev} ${text}` : text))
+              }
+              onAutoSend={(text) => {
+                setFeedback(text);
+                onReject(text);
+              }}
+            />
+            <button
+              onClick={() => onReject(feedback)}
+              disabled={rejecting || !feedback.trim()}
+              className="inline-flex items-center gap-1 rounded-xl bg-amber-600 px-3.5 py-2 font-semibold text-white shadow-md transition hover:bg-amber-500 disabled:opacity-40 shrink-0"
+            >
+              {rejecting ? "Sending..." : "Send Revisions ➔"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Plan Content Body */}
+      <div className="mt-4">
+        {isEditing ? (
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between text-[11px] text-zinc-400 font-mono">
+              <span>Markdown Editor (live edits will be sent on approval)</span>
+              <span>{draftPlan.length} chars</span>
+            </div>
+            <textarea
+              value={draftPlan}
+              onChange={(e) => setDraftPlan(e.target.value)}
+              rows={fullPageMode ? 20 : 12}
+              className="w-full rounded-xl border border-zinc-700/80 bg-zinc-950 p-4 font-mono text-xs leading-relaxed text-zinc-100 outline-none focus:border-purple-500 resize-y selection:bg-purple-500/40"
+              placeholder="# Implementation Plan..."
+            />
+          </div>
+        ) : (
+          <div className="max-h-[500px] overflow-y-auto rounded-xl border border-zinc-800/80 bg-zinc-950/70 p-4 sm:p-5 font-sans text-xs leading-relaxed text-zinc-200">
+            {planText || draftPlan ? (
+              <pre className="whitespace-pre-wrap font-mono text-xs text-zinc-200 selection:bg-purple-500/40 break-words">
+                {planText || draftPlan}
+              </pre>
+            ) : (
+              <div className="py-8 text-center text-zinc-500">
+                <p className="text-xs">No implementation plan generated yet.</p>
+                <p className="mt-1 text-[11px]">Worker is initializing Job 1 (Planning)...</p>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Test Results Card Component (Job 3 Self-Verification) ───────────────
+function TestResultsCard({ testResults, state }) {
+  if (!testResults) {
+    return (
+      <div className="rounded-2xl border border-zinc-800/80 bg-zinc-900/60 p-6 text-center shadow-xl">
+        <span className="text-2xl">🧪</span>
+        <h3 className="mt-2 text-sm font-semibold text-zinc-200">
+          Job 3: Self-Testing & Verification Suite
+        </h3>
+        <p className="mt-1 text-xs text-zinc-400">
+          Automated test execution results will appear here once the worker finishes Job 2 (Execution).
+        </p>
+      </div>
+    );
+  }
+
+  const passed = testResults.passed ?? 0;
+  const failed = testResults.failed ?? 0;
+  const total = testResults.total ?? (passed + failed);
+  const passRate = total > 0 ? Math.round((passed / total) * 100) : 100;
+  const isSuccess = failed === 0 && (testResults.exit_code === 0 || testResults.exit_code === undefined);
+
+  return (
+    <div className="rounded-2xl border border-emerald-900/50 bg-gradient-to-br from-emerald-950/30 via-zinc-900/90 to-zinc-950/90 p-5 sm:p-6 shadow-2xl backdrop-blur-md">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800/80 pb-4">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-emerald-700/50 bg-emerald-900/60 text-base font-bold text-emerald-200 shadow-inner">
+            🧪
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm sm:text-base font-semibold text-white">
+                Self-Testing & Verification Results
+              </h3>
+              <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] font-mono text-zinc-400">
+                Job 3 of 3
+              </span>
+            </div>
+            <p className="text-xs text-zinc-400">
+              Worker self-verification and test execution suite
+            </p>
+          </div>
+        </div>
+
+        <span
+          className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold ${
+            isSuccess
+              ? "border-emerald-500/50 bg-emerald-950/80 text-emerald-300"
+              : "border-red-500/50 bg-red-950/80 text-red-300"
+          }`}
+        >
+          <span>{isSuccess ? "✓ ALL TESTS PASSED" : "✗ TEST FAILURES DETECTED"}</span>
+        </span>
+      </div>
+
+      {/* Metrics Row */}
+      <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="rounded-xl border border-zinc-800/60 bg-zinc-950/70 p-3">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+            Pass Rate
+          </span>
+          <p className="mt-1 font-mono text-lg font-bold text-emerald-400">{passRate}%</p>
+        </div>
+
+        <div className="rounded-xl border border-zinc-800/60 bg-zinc-950/70 p-3">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+            Passed / Total
+          </span>
+          <p className="mt-1 font-mono text-lg font-bold text-zinc-200">
+            {passed} / {total}
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-zinc-800/60 bg-zinc-950/70 p-3">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+            Failed Tests
+          </span>
+          <p
+            className={`mt-1 font-mono text-lg font-bold ${
+              failed > 0 ? "text-red-400" : "text-zinc-400"
+            }`}
+          >
+            {failed}
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-zinc-800/60 bg-zinc-950/70 p-3">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+            Test Runner
+          </span>
+          <p className="mt-1 truncate font-mono text-xs font-semibold text-purple-300">
+            {testResults.framework || "pytest"}
+          </p>
+        </div>
+      </div>
+
+      {/* Output details / logs */}
+      {(testResults.output || testResults.details) && (
+        <div className="mt-4">
+          <p className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-400">
+            Execution Log
+          </p>
+          <pre className="max-h-60 overflow-y-auto rounded-xl border border-zinc-800/80 bg-zinc-950 p-3.5 font-mono text-xs text-zinc-300 whitespace-pre-wrap">
+            {testResults.output || JSON.stringify(testResults.details, null, 2)}
+          </pre>
         </div>
       )}
     </div>

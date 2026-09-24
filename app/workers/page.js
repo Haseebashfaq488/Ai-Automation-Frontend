@@ -9,6 +9,7 @@ import PowerControls from "../components/PowerControls";
 
 const STATUS_STYLE = {
   running: "border-sky-700/60 bg-sky-950/60 text-sky-300 shadow-[0_0_12px_rgba(56,189,248,0.2)]",
+  awaiting_plan_approval: "border-amber-500/80 bg-amber-950/80 text-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.35)] ring-1 ring-amber-500/40",
   completed: "border-emerald-700/60 bg-emerald-950/60 text-emerald-300",
   cancelled: "border-amber-700/60 bg-amber-950/60 text-amber-300",
   idle: "border-zinc-700 bg-zinc-800 text-zinc-400",
@@ -429,17 +430,25 @@ export default function WorkersPage() {
           {/* List Controls */}
           <div className="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-1.5 rounded-xl border border-zinc-800 bg-zinc-900/60 p-1 overflow-x-auto scrollbar-none max-w-full">
-              {["all", "running", "completed", "cancelled"].map((st) => (
+              {[
+                { id: "all", label: "All" },
+                { id: "running", label: "Running" },
+                { id: "awaiting_plan_approval", label: "⚠️ Awaiting Approval" },
+                { id: "completed", label: "Completed" },
+                { id: "cancelled", label: "Cancelled" },
+              ].map((st) => (
                 <button
-                  key={st}
-                  onClick={() => setFilterStatus(st)}
-                  className={`rounded-lg px-2.5 py-1 text-xs font-medium capitalize transition shrink-0 ${
-                    filterStatus === st
-                      ? "bg-purple-950/80 text-purple-200 border border-purple-800/50 shadow-sm"
+                  key={st.id}
+                  onClick={() => setFilterStatus(st.id)}
+                  className={`rounded-lg px-2.5 py-1 text-xs font-medium transition shrink-0 ${
+                    filterStatus === st.id
+                      ? st.id === "awaiting_plan_approval"
+                        ? "bg-amber-950/80 text-amber-200 border border-amber-600/60 shadow-sm"
+                        : "bg-purple-950/80 text-purple-200 border border-purple-800/50 shadow-sm"
                       : "text-zinc-400 hover:text-white"
                   }`}
                 >
-                  {st}
+                  {st.label}
                 </button>
               ))}
             </div>
@@ -471,58 +480,75 @@ export default function WorkersPage() {
           )}
 
           <div className="space-y-3">
-            {filtered.map((w) => (
-              <Link
-                key={w.session_id}
-                href={`/worker/${w.session_id}`}
-                className="group block rounded-2xl border border-zinc-800/80 bg-zinc-900/70 p-3.5 sm:p-4 shadow-md transition hover:border-purple-800/50 hover:bg-zinc-900/95"
-              >
-                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 sm:gap-4">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="rounded-md border border-purple-900/60 bg-purple-950/50 px-2 py-0.5 font-mono text-[11px] font-semibold text-purple-300">
-                        {w.session_id}
-                      </span>
-                      <h3 className="truncate text-xs sm:text-sm font-semibold text-white group-hover:text-purple-200 transition">
-                        {w.objective || "Untitled Worker Task"}
-                      </h3>
-                    </div>
-
-                    <p className="mt-1.5 text-xs text-zinc-400">
-                      {w.completed?.length ?? 0} completed · {w.errors?.length ?? 0} errors
-                      {w.current_step ? (
-                        <span className="text-sky-400 font-medium"> · active: {w.current_step}</span>
-                      ) : ""}
-                    </p>
-                  </div>
-
-                  <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-start gap-2 sm:gap-2.5 pt-2 sm:pt-0 border-t border-zinc-800/50 sm:border-0">
-                    <span
-                      className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] sm:text-xs font-semibold uppercase tracking-wider ${
-                        STATUS_STYLE[w.status] || STATUS_STYLE.idle
-                      }`}
-                    >
-                      {w.status === "running" && (
-                        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-400" />
-                      )}
-                      {w.status}
-                    </span>
-
-                    <div className="flex items-center gap-2">
-                      <div className="h-1.5 w-20 sm:w-24 overflow-hidden rounded-full bg-zinc-800">
-                        <div
-                          className="h-full rounded-full bg-gradient-to-r from-purple-500 to-sky-400 transition-all duration-300"
-                          style={{ width: `${w.progress_percent ?? 0}%` }}
-                        />
+            {filtered.map((w) => {
+              const isAwaiting = w.status === "awaiting_plan_approval";
+              return (
+                <Link
+                  key={w.session_id}
+                  href={`/worker/${w.session_id}`}
+                  className={`group block rounded-2xl border p-3.5 sm:p-4 shadow-md transition ${
+                    isAwaiting
+                      ? "border-amber-500/70 bg-gradient-to-r from-amber-950/30 via-zinc-900/90 to-zinc-900/80 hover:border-amber-400"
+                      : "border-zinc-800/80 bg-zinc-900/70 hover:border-purple-800/50 hover:bg-zinc-900/95"
+                  }`}
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 sm:gap-4">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="rounded-md border border-purple-900/60 bg-purple-950/50 px-2 py-0.5 font-mono text-[11px] font-semibold text-purple-300">
+                          {w.session_id}
+                        </span>
+                        <h3 className="truncate text-xs sm:text-sm font-semibold text-white group-hover:text-purple-200 transition">
+                          {w.objective || "Untitled Worker Task"}
+                        </h3>
                       </div>
-                      <span className="font-mono text-[10px] sm:text-[11px] text-zinc-400">
-                        {w.progress_percent ?? 0}%
+
+                      <p className="mt-1.5 text-xs text-zinc-400">
+                        {w.completed?.length ?? 0} completed · {w.errors?.length ?? 0} errors
+                        {w.current_step ? (
+                          <span className="text-sky-400 font-medium"> · active: {w.current_step}</span>
+                        ) : ""}
+                      </p>
+
+                      {isAwaiting && (
+                        <div className="mt-2.5 inline-flex items-center gap-1.5 rounded-lg border border-amber-500/50 bg-amber-950/60 px-2.5 py-1 text-[11px] font-medium text-amber-300">
+                          <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-ping" />
+                          <span>Implementation Plan Ready — Click to Review & Approve →</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-start gap-2 sm:gap-2.5 pt-2 sm:pt-0 border-t border-zinc-800/50 sm:border-0">
+                      <span
+                        className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] sm:text-xs font-semibold uppercase tracking-wider ${
+                          STATUS_STYLE[w.status] || STATUS_STYLE.idle
+                        }`}
+                      >
+                        {w.status === "running" && (
+                          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-400" />
+                        )}
+                        {isAwaiting && (
+                          <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+                        )}
+                        {isAwaiting ? "Awaiting Plan Approval" : w.status}
                       </span>
+
+                      <div className="flex items-center gap-2">
+                        <div className="h-1.5 w-20 sm:w-24 overflow-hidden rounded-full bg-zinc-800">
+                          <div
+                            className="h-full rounded-full bg-gradient-to-r from-purple-500 to-sky-400 transition-all duration-300"
+                            style={{ width: `${w.progress_percent ?? 0}%` }}
+                          />
+                        </div>
+                        <span className="font-mono text-[10px] sm:text-[11px] text-zinc-400">
+                          {w.progress_percent ?? 0}%
+                        </span>
+                      </div>
                     </div>
                   </div>
-                </div>
-              </Link>
-            ))}
+                </Link>
+              );
+            })}
           </div>
         </div>
       </div>

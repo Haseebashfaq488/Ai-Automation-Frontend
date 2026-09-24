@@ -95,15 +95,15 @@ export default function TaskChainTracker({ activePlan, planExecution, isOpenMobi
           const res = await apiFetch(`/workers/${step.sessionId}`);
           if (!res.ok) continue;
           const data = await res.json();
-          if (data && (data.status === "completed" || data.status === "cancelled" || data.progress_percent === 100)) {
+          if (data && (data.status === "completed" || data.status === "cancelled" || data.status === "awaiting_plan_approval" || data.progress_percent === 100)) {
             if (!isMounted) return;
             setPipelineSteps((prev) =>
               prev.map((s) => {
                 if (s.sessionId === step.sessionId || s.index === step.index) {
                   return {
                     ...s,
-                    status: data.status === "cancelled" ? "failed" : "completed",
-                    currentSubStep: null,
+                    status: data.status === "cancelled" ? "failed" : data.status === "awaiting_plan_approval" ? "awaiting_plan_approval" : "completed",
+                    currentSubStep: data.status === "awaiting_plan_approval" ? "Awaiting implementation plan approval..." : null,
                     result: data.status === "completed" ? "Worker completed successfully" : s.result,
                   };
                 }
@@ -366,6 +366,7 @@ export default function TaskChainTracker({ activePlan, planExecution, isOpenMobi
         {pipelineSteps.map((step, idx) => {
           const isCompleted = step.status === "completed";
           const isExecuting = step.status === "executing" || step.status === "running";
+          const isAwaitingApproval = step.status === "awaiting_plan_approval";
           const isFailed = step.status === "failed";
           const isWaiting = step.status === "waiting";
 
@@ -375,6 +376,8 @@ export default function TaskChainTracker({ activePlan, planExecution, isOpenMobi
               className={`relative rounded-xl border p-3 transition-all duration-300 ${
                 isCompleted
                   ? "border-emerald-700/50 bg-emerald-950/20 shadow-sm"
+                  : isAwaitingApproval
+                  ? "border-amber-500/70 bg-amber-950/30 shadow-md shadow-amber-950/40 ring-1 ring-amber-500/40 animate-pulse"
                   : isExecuting
                   ? "border-purple-500/70 bg-purple-950/30 shadow-md shadow-purple-950/50 ring-1 ring-purple-500/40"
                   : isFailed
@@ -400,7 +403,15 @@ export default function TaskChainTracker({ activePlan, planExecution, isOpenMobi
                     ✓ Done
                   </span>
                 )}
-                {isExecuting && (
+                {isAwaitingApproval && (
+                  <Link
+                    href={step.sessionId ? `/worker/${step.sessionId}` : "/workers"}
+                    className="inline-flex items-center gap-1 rounded-full bg-amber-500/20 border border-amber-500/50 px-2 py-0.5 text-[10px] font-semibold text-amber-300 hover:bg-amber-500/30 transition shrink-0"
+                  >
+                    ⚠️ Review Plan →
+                  </Link>
+                )}
+                {isExecuting && !isAwaitingApproval && (
                   <span className="inline-flex items-center gap-1 rounded-full bg-purple-500/20 border border-purple-500/40 px-2 py-0.5 text-[10px] font-semibold text-purple-300 animate-pulse shrink-0">
                     ⚡ In Progress
                   </span>
@@ -423,9 +434,15 @@ export default function TaskChainTracker({ activePlan, planExecution, isOpenMobi
               </p>
 
               {/* Dynamic Live Substep if running */}
-              {isExecuting && step.currentSubStep && (
-                <div className="mt-2 flex items-center gap-1.5 rounded-lg bg-purple-950/60 border border-purple-800/60 px-2 py-1 text-[11px] text-purple-300">
-                  <span className="h-1.5 w-1.5 rounded-full bg-purple-400 animate-ping shrink-0" />
+              {(isExecuting || isAwaitingApproval) && step.currentSubStep && (
+                <div className={`mt-2 flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] ${
+                  isAwaitingApproval
+                    ? "bg-amber-950/60 border border-amber-800/60 text-amber-300"
+                    : "bg-purple-950/60 border border-purple-800/60 text-purple-300"
+                }`}>
+                  <span className={`h-1.5 w-1.5 rounded-full animate-ping shrink-0 ${
+                    isAwaitingApproval ? "bg-amber-400" : "bg-purple-400"
+                  }`} />
                   <span className="font-mono truncate">{step.currentSubStep}</span>
                 </div>
               )}
