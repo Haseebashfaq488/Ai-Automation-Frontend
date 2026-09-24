@@ -101,42 +101,81 @@ export default function TaskChainTracker({ activePlan, planExecution, isOpenMobi
       for (const step of activeWorkerSteps) {
         if (!step.sessionId) continue;
         try {
+          // 1. Check worker session status
           const res = await apiFetch(`/workers/${step.sessionId}`);
-          if (!res.ok) continue;
-          const data = await res.json();
-          if (data && isMounted) {
-            setPipelineSteps((prev) =>
-              prev.map((s) => {
-                if (s.index === step.index) {
-                  let nextStatus = s.status;
-                  let nextSubStep = s.currentSubStep;
-                  let nextResult = s.result;
+          if (res.ok) {
+            const data = await res.json();
+            if (data && isMounted) {
+              setPipelineSteps((prev) =>
+                prev.map((s) => {
+                  if (s.index === step.index) {
+                    let nextStatus = s.status;
+                    let nextSubStep = s.currentSubStep;
+                    let nextResult = s.result;
 
-                  if (data.status === "completed" || data.progress_percent === 100) {
-                    nextStatus = "completed";
-                    nextSubStep = null;
-                    nextResult = "Worker completed successfully";
-                  } else if (data.status === "cancelled") {
-                    nextStatus = "failed";
-                    nextSubStep = null;
-                  } else if (data.status === "awaiting_plan_approval") {
-                    nextStatus = "awaiting_plan_approval";
-                    nextSubStep = "Awaiting implementation plan approval...";
-                  } else if (data.status === "running") {
-                    nextStatus = "running";
-                    nextSubStep = data.current_step || "Worker executing...";
+                    if (data.status === "completed" || data.progress_percent === 100) {
+                      nextStatus = "completed";
+                      nextSubStep = null;
+                      nextResult = "Worker completed successfully";
+                    } else if (data.status === "cancelled") {
+                      nextStatus = "failed";
+                      nextSubStep = null;
+                    } else if (data.status === "awaiting_plan_approval") {
+                      nextStatus = "awaiting_plan_approval";
+                      nextSubStep = "Awaiting implementation plan approval...";
+                    } else if (data.status === "running") {
+                      nextStatus = "running";
+                      nextSubStep = data.current_step || "Worker executing...";
+                    }
+
+                    return {
+                      ...s,
+                      status: nextStatus,
+                      currentSubStep: nextSubStep,
+                      result: nextResult,
+                    };
                   }
+                  return s;
+                })
+              );
+            }
+          }
 
-                  return {
-                    ...s,
-                    status: nextStatus,
-                    currentSubStep: nextSubStep,
-                    result: nextResult,
-                  };
+          // 2. Check reactive follow-up hooks status
+          const hooksRes = await apiFetch(`/events/hooks?session_id=${step.sessionId}`);
+          if (hooksRes.ok) {
+            const hooks = await hooksRes.json();
+            if (Array.isArray(hooks) && hooks.length > 0 && isMounted) {
+              setPipelineSteps((prev) => {
+                let updated = [...prev];
+                for (const h of hooks) {
+                  const targetIdx = updated.findIndex(
+                    (s) => s.tool === h.action_tool && s.status !== "completed" && s.status !== "failed"
+                  );
+                  if (targetIdx !== -1) {
+                    if (h.executed) {
+                      updated[targetIdx] = {
+                        ...updated[targetIdx],
+                        status: "completed",
+                        currentSubStep: null,
+                        result:
+                          typeof h.result === "string"
+                            ? h.result
+                            : h.result?.message || "Action executed successfully",
+                      };
+                    } else if (h.error) {
+                      updated[targetIdx] = {
+                        ...updated[targetIdx],
+                        status: "failed",
+                        currentSubStep: null,
+                        error: h.error,
+                      };
+                    }
+                  }
                 }
-                return s;
-              })
-            );
+                return updated;
+              });
+            }
           }
         } catch {
           // ignore network hiccups

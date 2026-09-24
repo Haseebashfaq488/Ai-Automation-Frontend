@@ -468,6 +468,15 @@ export default function ToolOutputViewer({ tool, data }) {
     }
   }
 
+  if (data?.status === "chained") {
+    return (
+      <div className="inline-flex items-center gap-2 rounded-xl border border-cyan-800/40 bg-cyan-950/30 px-3 py-2 text-xs font-mono text-cyan-300">
+        <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-ping" />
+        <span>⚡ Chained follow-up: Will trigger automatically when worker completes.</span>
+      </div>
+    );
+  }
+
   if (EMAIL_TOOLS.has(tool)) {
     if (tool === "send_email") {
       return (

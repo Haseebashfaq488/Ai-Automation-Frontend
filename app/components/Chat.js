@@ -160,26 +160,34 @@ export function PlanCard({ data, prompt, onConfirm, isConfirmed = false }) {
 }
 
 export function ExecutionCard({ data }) {
+  const hasChained = data.results?.some((r) => r.data?.status === "chained");
+
   return (
     <div className="w-full max-w-[95%] sm:max-w-[85%] rounded-2xl rounded-bl-md border border-zinc-800/80 bg-zinc-900/90 p-3.5 sm:p-5 shadow-xl backdrop-blur-md">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <span
             className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${
-              data.success
+              hasChained
+                ? "border border-cyan-800/60 bg-cyan-950/60 text-cyan-300"
+                : data.success
                 ? "border border-emerald-800/60 bg-emerald-950/60 text-emerald-300"
                 : "border border-red-800/60 bg-red-950/60 text-red-300"
             }`}
           >
             <span
               className={`h-1.5 w-1.5 rounded-full ${
-                data.success ? "bg-emerald-400" : "bg-red-400"
+                hasChained ? "bg-cyan-400 animate-ping" : data.success ? "bg-emerald-400" : "bg-red-400"
               }`}
             />
-            {data.success ? "All steps completed" : "Some steps failed"}
+            {hasChained
+              ? "Worker active & task chained"
+              : data.success
+              ? "All steps completed"
+              : "Some steps failed"}
           </span>
           <span className="text-xs text-zinc-500">
-            {data.completed}/{data.total_steps} succeeded
+            {data.completed}/{data.total_steps} {hasChained ? "initiated" : "succeeded"}
           </span>
         </div>
       </div>
@@ -199,10 +207,14 @@ export function ExecutionCard({ data }) {
               </div>
               <span
                 className={`text-xs font-semibold shrink-0 ${
-                  r.success ? "text-emerald-400" : "text-red-400"
+                  r.data?.status === "chained"
+                    ? "text-cyan-400 font-mono"
+                    : r.success
+                    ? "text-emerald-400"
+                    : "text-red-400"
                 }`}
               >
-                {r.success ? "✓ ok" : "✗ failed"}
+                {r.data?.status === "chained" ? "⏳ chained" : r.success ? "✓ ok" : "✗ failed"}
               </span>
             </div>
 
