@@ -38,14 +38,20 @@ export default function TaskChainTracker({ activePlan, planExecution, isOpenMobi
   useEffect(() => {
     if (!planExecution || !planExecution.results) return;
 
+    let foundSid = null;
+    for (const r of planExecution.results) {
+      if (r.data?.session_id) foundSid = r.data.session_id;
+      if (r.data?.target_session) foundSid = r.data.target_session;
+    }
+    if (foundSid) setActiveSessionId(foundSid);
+
     setPipelineSteps((prev) =>
       prev.map((step, idx) => {
         const exec = planExecution.results.find((r) => r.index === idx || r.tool === step.tool);
         if (exec) {
           const isChained = exec.data?.status === "chained";
           const isFork = step.tool === "fork" || step.tool?.includes("worker");
-          const sid = exec.data?.session_id || (!isChained ? exec.data?.target_session : null);
-          if (sid && !activeSessionId) setActiveSessionId(sid);
+          const sid = exec.data?.session_id || exec.data?.target_session || foundSid;
 
           let stepStatus = "completed";
           let stepResult = exec.data;
@@ -73,7 +79,7 @@ export default function TaskChainTracker({ activePlan, planExecution, isOpenMobi
 
           return {
             ...step,
-            sessionId: isFork ? (sid || step.sessionId) : null,
+            sessionId: sid || step.sessionId,
             status: stepStatus,
             result: stepResult,
             error: exec.error,
