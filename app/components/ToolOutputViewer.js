@@ -495,7 +495,7 @@ export default function ToolOutputViewer({ tool, data }) {
   }
 
   // Direct Task Execution / Intervention special cases (already rendered by StepBubble)
-  if (tool === "task_execution" || tool === "apply_intervention" || tool === "opencode_milestone") {
+  if (tool === "task_execution" || tool === "apply_intervention" || tool === "opencode_milestone" || tool === "self_testing") {
     return null;
   }
 
