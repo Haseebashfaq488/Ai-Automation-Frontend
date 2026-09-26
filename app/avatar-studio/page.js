@@ -118,17 +118,42 @@ const GESTURE_CATEGORIES = {
   },
 };
 
-const EMOTIONS = [
-  { id: "neutral", name: "Neutral Calm", icon: "😐" },
-  { id: "happy", name: "Happy Smile", icon: "😊" },
-  { id: "happy_wave", name: "Radiant Joy", icon: "🌟" },
-  { id: "happy_heart", name: "Heartfelt Love", icon: "💖" },
-  { id: "happy_clap", name: "Excited Cheerful", icon: "🎉" },
-  { id: "relaxed", name: "Serene Relaxed", icon: "😌" },
-  { id: "nodding", name: "Receptive Listening", icon: "👂" },
-  { id: "surprised", name: "Wide Eyed Surprise", icon: "😮" },
-  { id: "sad", name: "Gentle Pout", icon: "🥺" },
-  { id: "angry", name: "Frustrated Pout", icon: "😤" },
+const BASIC_VRM_EMOTIONS = [
+  { id: "neutral", name: "Neutral Calm", icon: "😐", desc: "Resting baseline face" },
+  { id: "happy", name: "Happy / Joy", icon: "😊", desc: "Radiant open smile" },
+  { id: "angry", name: "Angry / Anger", icon: "😤", desc: "Furrowed brows & tense mouth" },
+  { id: "sad", name: "Sad / Sorrow", icon: "🥺", desc: "Gentle pout with dropped brows" },
+  { id: "relaxed", name: "Relaxed / Fun", icon: "😌", desc: "Serene calm peaceful smile" },
+  { id: "surprised", name: "Surprised / Shock", icon: "😮", desc: "Wide open eyes & jaw" },
+];
+
+const EYE_WINK_CONTROLS = [
+  { id: "blinkLeft", name: "Wink Left Eye", icon: "😉", desc: "Left eye winks, right eye open" },
+  { id: "blinkRight", name: "Wink Right Eye", icon: "😜", desc: "Right eye winks, left eye open" },
+  { id: "blink", name: "Both Eyes Closed", icon: "😴", desc: "Peaceful full eye closure" },
+];
+
+const PHONEME_VISEMES = [
+  { id: "aa", name: "AA", label: "Ah", icon: "🗣️", desc: "Wide open jaw" },
+  { id: "ee", name: "EE", label: "Eh", icon: "🗣️", desc: "Broad smile vowel" },
+  { id: "ih", name: "IH", label: "Ee", icon: "🗣️", desc: "Teeth-revealing spread" },
+  { id: "oh", name: "OH", label: "Oh", icon: "🗣️", desc: "Rounded circular mouth" },
+  { id: "ou", name: "OU", label: "Oo", icon: "🗣️", desc: "Puckered kiss mouth" },
+];
+
+const CHARM_EMOTIONS = [
+  { id: "happy_wave", name: "Radiant Joy", icon: "🌟", desc: "Welcoming hospitality smile" },
+  { id: "happy_heart", name: "Heartfelt Love", icon: "💖", desc: "Sweet loving adoring smile" },
+  { id: "happy_clap", name: "Excited Cheerful", icon: "🎉", desc: "Celebration praise smile" },
+  { id: "shy", name: "Shy Bashful", icon: "😳", desc: "Bashful sweet smile with head tilt" },
+  { id: "cat_pose", name: "Neko Cat Mouth", icon: "🐾", desc: "Anime '3' shaped playful mouth" },
+  { id: "blowing_kiss", name: "Blowing Kiss", icon: "😘", desc: "Puckered kiss lips + sweet wink" },
+  { id: "blush", name: "Blushing Sweet", icon: "🌸", desc: "Flustered sweet smile" },
+  { id: "nodding", name: "Receptive Listening", icon: "👂", desc: "Focused attentive understanding" },
+  { id: "thinking", name: "Deep Thought", icon: "🤔", desc: "Thoughtful upward gaze" },
+  { id: "shrugging", name: "Quizzical Shrug", icon: "🤷", desc: "Raised eyebrows & curiosity" },
+  { id: "sleepy", name: "Sleepy Drowsy", icon: "🥱", desc: "Heavy eyelids & soft settling" },
+  { id: "relieved", name: "Relieved Sigh", icon: "😮‍💨", desc: "Exhaling relaxed contentment" },
 ];
 
 const PRESET_SCRIPTS = [
@@ -159,6 +184,7 @@ export default function AvatarStudioPage() {
   const [selectedCategory, setSelectedCategory] = useState("idle");
   const [activeGesture, setActiveGesture] = useState("none");
   const [activeEmotion, setActiveEmotion] = useState("neutral");
+  const [expressionIntensity, setExpressionIntensity] = useState(1.0);
   const [assistantMode, setAssistantMode] = useState("idle"); // idle | listening | speaking
   const [isLooping, setIsLooping] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -252,12 +278,19 @@ export default function AvatarStudioPage() {
     setAssistantMode("idle");
   }
 
-  // Apply facial emotion
-  function triggerEmotion(emotionId) {
+  // Apply facial emotion with intensity
+  function triggerEmotion(emotionId, intensity = expressionIntensity) {
     const avatar = avatarControllerRef.current;
     if (!avatar || !avatar.expressions) return;
     setActiveEmotion(emotionId);
-    avatar.expressions.setEmotion(emotionId);
+    avatar.expressions.setEmotion(emotionId, intensity);
+  }
+
+  function handleIntensityChange(newVal) {
+    setExpressionIntensity(newVal);
+    if (activeEmotion && activeEmotion !== "none" && activeEmotion !== "neutral") {
+      triggerEmotion(activeEmotion, newVal);
+    }
   }
 
   // Switch assistant mode
@@ -271,13 +304,15 @@ export default function AvatarStudioPage() {
   // Test mouth viseme
   function testViseme(v) {
     const avatar = avatarControllerRef.current;
-    if (!avatar?.vrm?.expressionManager) return;
-    for (const vis of ["aa", "ee", "ih", "oh", "ou"]) {
-      avatar.vrm.expressionManager.setValue(vis, vis === v ? 1.0 : 0);
-    }
+    if (!avatar || !avatar.expressions) return;
+    setActiveEmotion(`viseme_${v}`);
+    avatar.expressions.setViseme(v, expressionIntensity);
     setTimeout(() => {
-      avatar.vrm.expressionManager.setValue(v, 0);
-    }, 700);
+      if (avatar?.expressions) {
+        avatar.expressions.setViseme(v, 0);
+        setActiveEmotion("neutral");
+      }
+    }, 1000);
   }
 
   // Run full speech choreography synchronized with Edge TTS audio
@@ -575,22 +610,75 @@ export default function AvatarStudioPage() {
 
           {/* TAB 2: FACIAL EXPRESSIONS & VISEMES */}
           {activeTab === "emotions" && (
-            <div className="flex flex-1 flex-col overflow-y-auto p-3.5 space-y-4">
+            <div className="flex flex-1 flex-col overflow-y-auto p-3.5 space-y-4 pr-1.5">
+              {/* Header with Reset */}
+              <div className="flex items-center justify-between pb-2 border-b border-zinc-800/60">
+                <div>
+                  <h3 className="text-xs font-semibold text-zinc-200 uppercase tracking-wider flex items-center gap-1.5">
+                    <span>😊</span>
+                    <span>Facial Expressions & Visemes</span>
+                  </h3>
+                  <p className="text-[11px] text-zinc-500">Standard VRM morph targets, eye winks, and conversational profiles</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => triggerEmotion("neutral")}
+                  className="rounded-lg border border-zinc-700/80 bg-zinc-800 px-2.5 py-1 text-xs text-zinc-300 hover:border-zinc-500 hover:text-white transition flex items-center gap-1"
+                >
+                  <span>🔄</span>
+                  <span>Reset Neutral</span>
+                </button>
+              </div>
+
+              {/* Expression Intensity Slider */}
+              <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-3 text-xs shadow-sm">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="font-semibold text-zinc-300 flex items-center gap-1.5 text-[11px]">
+                    <span>🎚️</span>
+                    <span>Expression Intensity:</span>
+                    <span className="font-mono text-purple-300 font-bold">{Math.round(expressionIntensity * 100)}%</span>
+                  </span>
+                  <div className="flex items-center gap-1">
+                    {[0.3, 0.6, 1.0].map((val) => (
+                      <button
+                        key={val}
+                        type="button"
+                        onClick={() => handleIntensityChange(val)}
+                        className={`rounded px-1.5 py-0.5 text-[10px] font-mono transition border ${
+                          Math.abs(expressionIntensity - val) < 0.05
+                            ? "border-purple-600 bg-purple-950 text-purple-300"
+                            : "border-zinc-800 bg-zinc-900 text-zinc-500 hover:text-zinc-300"
+                        }`}
+                      >
+                        {Math.round(val * 100)}%
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <input
+                  type="range"
+                  min="0.1"
+                  max="1.0"
+                  step="0.05"
+                  value={expressionIntensity}
+                  onChange={(e) => handleIntensityChange(parseFloat(e.target.value))}
+                  className="w-full accent-purple-500 cursor-pointer h-1.5 bg-zinc-800 rounded-lg appearance-none"
+                />
+              </div>
+
+              {/* SECTION 1: BASIC VRM CORE EMOTIONS */}
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">
-                    Facial Emotions (Wide-Eye Presets)
-                  </h3>
-                  <button
-                    type="button"
-                    onClick={() => triggerEmotion("neutral")}
-                    className="text-[11px] text-zinc-500 hover:text-zinc-300 underline"
-                  >
-                    Reset Neutral
-                  </button>
+                  <h4 className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <span>🎭</span>
+                    <span>Core VRM Basic Emotions</span>
+                    <span className="rounded bg-purple-950/80 px-1.5 py-0.2 text-[9px] font-mono text-purple-300 border border-purple-800/40">
+                      Standard
+                    </span>
+                  </h4>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
-                  {EMOTIONS.map((emo) => (
+                  {BASIC_VRM_EMOTIONS.map((emo) => (
                     <button
                       key={emo.id}
                       type="button"
@@ -601,30 +689,99 @@ export default function AvatarStudioPage() {
                           : "border-zinc-800/80 bg-zinc-900/60 text-zinc-300 hover:border-amber-600/60 hover:bg-zinc-800/80 hover:text-white"
                       }`}
                     >
-                      <span className="text-base">{emo.icon}</span>
+                      <span className="text-xl shrink-0">{emo.icon}</span>
                       <div className="truncate">
                         <p className="text-xs font-medium truncate">{emo.name}</p>
-                        <p className="text-[10px] font-mono text-zinc-500 truncate">{emo.id}</p>
+                        <p className="text-[10px] text-zinc-500 truncate">{emo.desc}</p>
                       </div>
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* Mouth Viseme Shapes */}
+              {/* SECTION 2: EYE & WINK CONTROLS */}
               <div className="border-t border-zinc-800/60 pt-3">
-                <h3 className="text-xs font-semibold text-zinc-300 uppercase tracking-wider mb-2">
-                  Phoneme Viseme Shapes (Direct Test)
-                </h3>
-                <div className="grid grid-cols-5 gap-1.5">
-                  {["aa", "ee", "ih", "oh", "ou"].map((v) => (
+                <h4 className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <span>👁️</span>
+                  <span>Eye & Wink Controls</span>
+                </h4>
+                <div className="grid grid-cols-3 gap-2">
+                  {EYE_WINK_CONTROLS.map((eye) => (
                     <button
-                      key={v}
+                      key={eye.id}
                       type="button"
-                      onClick={() => testViseme(v)}
-                      className="rounded-lg border border-zinc-800 bg-zinc-900/80 py-2 text-center text-xs font-mono text-purple-300 hover:border-purple-600 hover:bg-purple-950/60 transition"
+                      onClick={() => triggerEmotion(eye.id)}
+                      className={`flex flex-col items-center justify-center rounded-xl border p-2.5 text-center transition ${
+                        activeEmotion === eye.id
+                          ? "border-purple-500/80 bg-purple-950/40 text-purple-200 shadow-md shadow-purple-950/40"
+                          : "border-zinc-800/80 bg-zinc-900/60 text-zinc-300 hover:border-purple-600/60 hover:bg-zinc-800/80 hover:text-white"
+                      }`}
                     >
-                      {v.toUpperCase()}
+                      <span className="text-xl mb-1">{eye.icon}</span>
+                      <p className="text-[11px] font-medium leading-tight">{eye.name}</p>
+                      <p className="text-[9px] font-mono text-zinc-500 mt-0.5">{eye.id}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* SECTION 3: PHONEME VISEMES */}
+              <div className="border-t border-zinc-800/60 pt-3">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <span>🗣️</span>
+                    <span>Phoneme Viseme Shapes (Direct Test)</span>
+                  </h4>
+                  <span className="text-[10px] text-zinc-500">Mouth shapes for lip-sync</span>
+                </div>
+                <div className="grid grid-cols-5 gap-1.5">
+                  {PHONEME_VISEMES.map((v) => (
+                    <button
+                      key={v.id}
+                      type="button"
+                      onClick={() => testViseme(v.id)}
+                      className={`rounded-xl border py-2.5 px-1 text-center transition flex flex-col items-center justify-center ${
+                        activeEmotion === `viseme_${v.id}`
+                          ? "border-emerald-500/80 bg-emerald-950/40 text-emerald-200 shadow-md shadow-emerald-950/40"
+                          : "border-zinc-800 bg-zinc-900/80 text-zinc-300 hover:border-purple-600 hover:bg-purple-950/60 hover:text-white"
+                      }`}
+                    >
+                      <span className="text-sm font-bold font-mono text-purple-300">{v.name}</span>
+                      <span className="text-[10px] text-zinc-400">"{v.label}"</span>
+                      <span className="text-[9px] text-zinc-600 truncate w-full">{v.desc}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* SECTION 4: CHARM & CONVERSATIONAL EXPRESSIONS */}
+              <div className="border-t border-zinc-800/60 pt-3">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <span>✨</span>
+                    <span>Charm & Conversational Nuance</span>
+                    <span className="rounded bg-amber-950/80 px-1.5 py-0.2 text-[9px] font-mono text-amber-300 border border-amber-800/40">
+                      Open-Eyed
+                    </span>
+                  </h4>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {CHARM_EMOTIONS.map((emo) => (
+                    <button
+                      key={emo.id}
+                      type="button"
+                      onClick={() => triggerEmotion(emo.id)}
+                      className={`flex items-center gap-2 rounded-xl border p-2.5 text-left transition ${
+                        activeEmotion === emo.id
+                          ? "border-amber-500/80 bg-amber-950/40 text-amber-200 shadow-md shadow-amber-950/40"
+                          : "border-zinc-800/80 bg-zinc-900/60 text-zinc-300 hover:border-amber-600/60 hover:bg-zinc-800/80 hover:text-white"
+                      }`}
+                    >
+                      <span className="text-lg shrink-0">{emo.icon}</span>
+                      <div className="truncate">
+                        <p className="text-xs font-medium truncate">{emo.name}</p>
+                        <p className="text-[10px] text-zinc-500 truncate">{emo.desc}</p>
+                      </div>
                     </button>
                   ))}
                 </div>

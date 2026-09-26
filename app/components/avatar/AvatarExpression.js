@@ -371,8 +371,9 @@ export class AvatarExpression {
   /**
    * Set active emotion or tailored movement recipe
    * @param {string} profileName
+   * @param {number} [intensity=1.0]
    */
-  setEmotion(profileName) {
+  setEmotion(profileName, intensity = 1.0) {
     this.activeEmotion = profileName;
 
     // Reset target blendshapes
@@ -382,35 +383,44 @@ export class AvatarExpression {
     this.targetSmileJoy = 0.0;
     this.targetSmileFun = 0.0;
 
+    const safeIntensity = Math.max(0, Math.min(1.0, intensity));
+
     const recipe = this.facialProfiles[profileName];
     if (recipe) {
       // 1. Apply independent smile morphs (EYES STAY WIDE OPEN)
       if (recipe.smile) {
-        this.targetSmileJoy = recipe.smile.joy || 0;
-        this.targetSmileFun = recipe.smile.fun || 0;
+        this.targetSmileJoy = (recipe.smile.joy || 0) * safeIntensity;
+        this.targetSmileFun = (recipe.smile.fun || 0) * safeIntensity;
       }
 
       // 2. Apply standard VRM blendshapes
       if (recipe.weights) {
         for (const [key, val] of Object.entries(recipe.weights)) {
           if (this.managedExpressions.includes(key)) {
-            this.targetWeights[key] = val;
+            this.targetWeights[key] = val * safeIntensity;
           }
         }
       }
 
       // 3. Apply emotional body posture offsets
       if (recipe.posture) {
-        this.targetBodyOffsets = { ...recipe.posture };
+        const p = recipe.posture;
+        this.targetBodyOffsets = {
+          headPitch: (p.headPitch || 0) * safeIntensity,
+          headYaw: (p.headYaw || 0) * safeIntensity,
+          headRoll: (p.headRoll || 0) * safeIntensity,
+          chestPitch: (p.chestPitch || 0) * safeIntensity,
+          shoulderLift: (p.shoulderLift || 0) * safeIntensity,
+        };
       }
     } else {
-      // Fallback
+      // Fallback or direct standard VRM blendshape (e.g. blinkLeft, blinkRight, blink, etc.)
       if (profileName.startsWith('happy')) {
-        this.targetSmileJoy = 0.85;
+        this.targetSmileJoy = 0.85 * safeIntensity;
       } else if (profileName === 'relaxed') {
-        this.targetSmileFun = 0.6;
+        this.targetSmileFun = 0.6 * safeIntensity;
       } else if (this.managedExpressions.includes(profileName)) {
-        this.targetWeights[profileName] = 1.0;
+        this.targetWeights[profileName] = 1.0 * safeIntensity;
       }
     }
   }

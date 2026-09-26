@@ -27,8 +27,12 @@ It provides real-time manual testing and preview controls for:
 - **Stop Motion**: Instantly cancels active animation and returns avatar to resting idle posture.
 
 ### Tab 2: Expressions & Visemes
-- **10 Emotion Presets**: Neutral, Happy Smile, Radiant Joy, Heartfelt Love, Excited Cheerful, Serene Relaxed, Receptive Listening, Wide-Eyed Surprise, Gentle Pout, Frustrated Pout.
-- **Phoneme Viseme Buttons**: Directly activates VRM mouth visemes (`AA`, `EE`, `IH`, `OH`, `OU`) for lip-sync calibration.
+- **Expression Intensity Slider**: Dynamic weight control from 10% (subtle) to 100% (expressive anime style) with 30%, 60%, 100% quick-dial pills.
+- **Reset Neutral**: Quick 1-click reset returning facial morphs smoothly to resting neutral.
+- **Section 1 — Basic VRM Core Emotions (6)**: Standard VRM blendshapes (`Neutral`, `Happy / Joy`, `Angry`, `Sad / Sorrow`, `Relaxed / Fun`, `Surprised / Shock`).
+- **Section 2 — Eye & Wink Controls (3)**: Direct eyelid blendshapes (`Wink Left Eye`, `Wink Right Eye`, `Both Eyes Closed`).
+- **Section 3 — Phoneme Viseme Shapes (5)**: Dedicated speech vowel mouth shapes (`AA`, `EE`, `IH`, `OH`, `OU`) with pronunciation hints and automatic 1s return timer.
+- **Section 4 — Charm & Conversational Nuance (12)**: Handcrafted open-eyed emotion and dialogue profiles (`Radiant Joy`, `Heartfelt Love`, `Excited Cheerful`, `Shy Bashful`, `Neko Cat Mouth`, `Blowing Kiss`, `Blushing Sweet`, `Receptive Listening`, `Deep Thought`, `Quizzical Shrug`, `Sleepy Drowsy`, `Relieved Sigh`).
 
 ### Tab 3: Modes & States
 - **Idle**: Standard conversational resting mode with harmonic micro-sway and procedural breathing.
