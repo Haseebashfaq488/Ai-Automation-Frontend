@@ -22,7 +22,7 @@ const AvatarCanvas = dynamic(() => import("./components/avatar/AvatarCanvas"), {
 });
 
 import { API_URL, apiFetch } from "./lib/api";
-import { playTTS, stopTTS, setTTSMuted } from "./lib/ttsPlayer";
+import { playTTS, stopTTS, setTTSMuted, setTTSVoice, getTTSVoice, AVAILABLE_VOICES } from "./lib/ttsPlayer";
 const CHAT_STORAGE_KEY = "jarvis_chat_messages";
 
 function generateId() {
@@ -71,12 +71,20 @@ export default function Home() {
   const [avatarMessage, setAvatarMessage] = useState("");
   const [isVoiceActive, setIsVoiceActive] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
+  const [selectedVoice, setSelectedVoice] = useState("en-US-AvaNeural");
   const avatarTimeoutRef = useRef(null);
+
+  useEffect(() => {
+    try {
+      const stored = getTTSVoice();
+      if (stored) setSelectedVoice(stored);
+    } catch {}
+  }, []);
 
   // Active ONLY when the user has actually typed non-empty text
   const isTextActive = Boolean(input.trim());
 
-  function triggerAvatarSpeech(text) {
+  function triggerAvatarSpeech(text, customVoice = null) {
     if (!text || typeof text !== "string") return;
     if (avatarTimeoutRef.current) {
       clearTimeout(avatarTimeoutRef.current);
@@ -87,6 +95,7 @@ export default function Home() {
 
     // Play Edge Neural Voice - starts speaking state strictly when sound actually plays
     playTTS(text, {
+      voice: customVoice || selectedVoice,
       onPlay: () => {
         setAvatarState("speaking");
       },
@@ -492,6 +501,51 @@ export default function Home() {
               isTextActive={isTextActive}
               className="h-[360px] w-full"
             />
+
+            {/* Speaker Voice Options just below the avatar */}
+            <div className="mt-2.5 rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-2.5 text-xs shadow-sm">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="flex items-center gap-1.5 font-semibold text-zinc-300 text-[11px]">
+                  <span>🗣️</span>
+                  <span>Speaker Voice</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const voiceObj = AVAILABLE_VOICES.find((v) => v.id === selectedVoice);
+                    const sample = `<<<gesture: greeting, expression: happy_wave>>> Hello! I am ${voiceObj?.name || "your assistant"}, ready to help you.`;
+                    triggerAvatarSpeech(sample, selectedVoice);
+                  }}
+                  disabled={avatarState === "speaking"}
+                  className="flex items-center gap-1 rounded bg-purple-600/30 px-2 py-0.5 text-[10px] font-medium text-purple-300 hover:bg-purple-600/50 transition border border-purple-500/30 disabled:opacity-40"
+                  title="Test selected voice and speech animation"
+                >
+                  <span>▶</span>
+                  <span>Test Voice</span>
+                </button>
+              </div>
+
+              <div className="relative">
+                <select
+                  value={selectedVoice}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setSelectedVoice(v);
+                    setTTSVoice(v);
+                  }}
+                  className="w-full rounded-lg border border-zinc-700/80 bg-zinc-950 px-2.5 py-1.5 text-xs text-zinc-200 outline-none focus:border-purple-500 cursor-pointer appearance-none pr-7"
+                >
+                  {AVAILABLE_VOICES.map((v) => (
+                    <option key={v.id} value={v.id} className="bg-zinc-900 text-zinc-100">
+                      {v.icon} {v.name} — {v.tag}
+                    </option>
+                  ))}
+                </select>
+                <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 text-[10px]">
+                  ▼
+                </span>
+              </div>
+            </div>
 
             <div className="mt-3 rounded-xl border border-zinc-800/60 bg-zinc-900/40 p-3 text-xs">
               <div className="flex items-center justify-between text-[11px] text-zinc-400">

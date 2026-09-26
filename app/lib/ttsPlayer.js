@@ -10,6 +10,42 @@ import { apiFetch } from "./api";
 let currentAudio = null;
 let currentAudioUrl = null;
 let isMuted = false;
+let currentVoice = "en-US-AvaNeural";
+
+export const AVAILABLE_VOICES = [
+  { id: "en-US-AvaNeural", name: "Ava", tag: "Natural & Warm", icon: "🌸" },
+  { id: "en-US-AnaNeural", name: "Ana", tag: "Youthful & Cute", icon: "✨" },
+  { id: "en-US-AriaNeural", name: "Aria", tag: "Expressive & Clear", icon: "🎙️" },
+  { id: "en-US-EmmaNeural", name: "Emma", tag: "British & Cheerful", icon: "☕" },
+  { id: "en-US-JennyNeural", name: "Jenny", tag: "Calm Assistant", icon: "💼" },
+  { id: "en-US-AndrewNeural", name: "Andrew", tag: "Warm Male", icon: "👔" },
+];
+
+if (typeof window !== "undefined") {
+  try {
+    const saved = window.localStorage.getItem("jarvis_tts_voice");
+    if (saved) currentVoice = saved;
+  } catch {
+    // ignore
+  }
+}
+
+export function setTTSVoice(voiceId) {
+  if (voiceId && typeof voiceId === "string") {
+    currentVoice = voiceId;
+    if (typeof window !== "undefined") {
+      try {
+        window.localStorage.setItem("jarvis_tts_voice", voiceId);
+      } catch {
+        // ignore
+      }
+    }
+  }
+}
+
+export function getTTSVoice() {
+  return currentVoice;
+}
 
 let audioCtx = null;
 let analyser = null;
@@ -128,7 +164,7 @@ export function cleanTextForSpeech(text) {
  * @param {object} callbacks - { onStart, onPlay, onEnd, onError }
  * @returns {Promise<void>}
  */
-export async function playTTS(text, { onStart, onPlay, onEnd, onError } = {}) {
+export async function playTTS(text, { voice, onStart, onPlay, onEnd, onError } = {}) {
   // Always stop previous audio immediately
   stopTTS();
 
@@ -144,11 +180,12 @@ export async function playTTS(text, { onStart, onPlay, onEnd, onError } = {}) {
   }
 
   try {
+    const voiceToUse = voice || currentVoice || "en-US-AvaNeural";
     const res = await apiFetch("/agent/tts", {
       method: "POST",
       body: JSON.stringify({
         text: sanitized,
-        voice: "en-US-AvaNeural",
+        voice: voiceToUse,
       }),
     });
 
