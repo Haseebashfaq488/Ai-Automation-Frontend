@@ -133,12 +133,19 @@ export class AvatarChoreographer {
   }
 
   /**
-   * Play the parsed sequence of gestures chunk by chunk
+   * Play the parsed sequence of gestures chunk by chunk, synchronized with audio playback.
    * @param {string} fullText - Raw text containing <<<gesture: ...>>> tags
-   * @param {function} onComplete - Callback when the full sequence ends
+   * @param {HTMLAudioElement|null} [audioElement] - Live playing audio element to track currentTime
+   * @param {function} [onComplete] - Callback when the full sequence ends
    */
-  playSequence(fullText, onComplete) {
+  playSequence(fullText, audioElement, onComplete) {
     this.stop(); // Clear any existing sequence
+
+    // Support optional 2nd arg being onComplete if no audio passed
+    if (typeof audioElement === 'function') {
+      onComplete = audioElement;
+      audioElement = null;
+    }
 
     this.chunks = this.parseTimeline(fullText);
     if (this.chunks.length === 0) {
@@ -147,17 +154,13 @@ export class AvatarChoreographer {
     }
 
     this.isRunning = true;
-    this.currentChunkIndex = 0;
+    this.currentChunkIndex = -1;
 
-    const playNext = (index) => {
-      if (!this.isRunning || index >= this.chunks.length) {
-        this.isRunning = false;
-        if (onComplete) onComplete();
-        return;
-      }
-
-      const chunk = this.chunks[index];
+    const applyChunk = (index) => {
+      if (!this.isRunning || index >= this.chunks.length) return;
+      if (this.currentChunkIndex === index) return;
       this.currentChunkIndex = index;
+      const chunk = this.chunks[index];
 
       // 1. Set Facial Expression
       if (this.avatar.expressions) {
@@ -173,11 +176,70 @@ export class AvatarChoreographer {
           this.avatar.animations.play('talking', { loop: true, fadeDuration: 0.35 });
         }
       }
+    };
 
-      // 3. Schedule next chunk after this chunk's speech duration
+    // If an HTML5 audio element is playing or provided:
+    if (audioElement && typeof audioElement.currentTime === 'number') {
+      const totalWords = this.chunks.reduce(
+        (sum, c) => sum + (c.text ? c.text.split(/\s+/).filter(Boolean).length : 1),
+        0
+      ) || 1;
+
+      const audioDuration = (audioElement.duration && !isNaN(audioElement.duration) && audioElement.duration > 0)
+        ? audioElement.duration
+        : (this.chunks.reduce((sum, c) => sum + c.durationMs, 0) / 1000);
+
+      let currentSec = 0;
+      for (const chunk of this.chunks) {
+        const words = chunk.text ? chunk.text.split(/\s+/).filter(Boolean).length : 1;
+        const ratio = words / totalWords;
+        const chunkDurationSec = Math.max(1.0, audioDuration * ratio);
+        chunk.startSec = currentSec;
+        chunk.endSec = currentSec + chunkDurationSec;
+        currentSec += chunkDurationSec;
+      }
+
+      // Trigger initial chunk immediately with audio
+      applyChunk(0);
+
+      // Track playback progress synchronously with audio.currentTime
+      const onTimeUpdate = () => {
+        if (!this.isRunning || !audioElement) return;
+        const cur = audioElement.currentTime;
+        for (let i = 0; i < this.chunks.length; i++) {
+          if (cur >= this.chunks[i].startSec && (i === this.chunks.length - 1 || cur < this.chunks[i + 1].startSec)) {
+            applyChunk(i);
+            break;
+          }
+        }
+      };
+
+      audioElement.addEventListener('timeupdate', onTimeUpdate);
+      this.activeAudioElement = audioElement;
+      this.activeAudioListener = onTimeUpdate;
+
+      const onEnded = () => {
+        this.stop();
+        if (onComplete) onComplete();
+      };
+      audioElement.addEventListener('ended', onEnded, { once: true });
+      this.activeAudioEndedListener = onEnded;
+      return;
+    }
+
+    // Fallback timer if no audio is playing
+    const playNext = (index) => {
+      if (!this.isRunning || index >= this.chunks.length) {
+        this.isRunning = false;
+        if (onComplete) onComplete();
+        return;
+      }
+
+      applyChunk(index);
+
       const timer = setTimeout(() => {
         playNext(index + 1);
-      }, chunk.durationMs);
+      }, this.chunks[index].durationMs);
 
       this.activeTimeouts.push(timer);
     };
@@ -186,12 +248,27 @@ export class AvatarChoreographer {
   }
 
   /**
-   * Stop active choreography and clear all timers
+   * Stop active choreography and clear all timers & audio listeners
    */
   stop(fadeDuration = 0.4) {
     this.isRunning = false;
     this.currentChunkIndex = -1;
     this.chunks = [];
+
+    // Detach audio listeners
+    if (this.activeAudioElement && this.activeAudioListener) {
+      try {
+        this.activeAudioElement.removeEventListener('timeupdate', this.activeAudioListener);
+      } catch {}
+      this.activeAudioListener = null;
+    }
+    if (this.activeAudioElement && this.activeAudioEndedListener) {
+      try {
+        this.activeAudioElement.removeEventListener('ended', this.activeAudioEndedListener);
+      } catch {}
+      this.activeAudioEndedListener = null;
+    }
+    this.activeAudioElement = null;
 
     // Clear all pending timeouts
     for (const t of this.activeTimeouts) {

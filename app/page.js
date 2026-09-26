@@ -83,13 +83,11 @@ export default function Home() {
       avatarTimeoutRef.current = null;
     }
 
-    // Immediately trigger speaking state and speech choreography
-    setAvatarState("speaking");
     setAvatarMessage(text);
 
-    // Play Edge Neural Voice
+    // Play Edge Neural Voice - starts speaking state strictly when sound actually plays
     playTTS(text, {
-      onStart: () => {
+      onPlay: () => {
         setAvatarState("speaking");
       },
       onEnd: () => {
@@ -97,6 +95,7 @@ export default function Home() {
       },
       onError: (err) => {
         console.warn("[TTS] Edge TTS audio fallback:", err);
+        setAvatarState("speaking");
         const wordCount = text.split(/\s+/).filter(Boolean).length;
         const durationMs = Math.max(3500, Math.min(14000, wordCount * 360));
         avatarTimeoutRef.current = setTimeout(() => {

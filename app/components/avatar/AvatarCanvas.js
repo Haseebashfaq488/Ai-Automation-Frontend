@@ -6,6 +6,7 @@ import { AvatarScene } from "./AvatarScene.js";
 import { AvatarLoader } from "./AvatarLoader.js";
 import { VRMAvatar } from "./VRMAvatar.js";
 import { AvatarChoreographer } from "./AvatarChoreographer.js";
+import { getCurrentAudio } from "../../lib/ttsPlayer.js";
 
 /**
  * AvatarCanvas
@@ -148,7 +149,8 @@ export default function AvatarCanvas({
     }
 
     if (assistantState === "speaking") {
-      choreographerRef.current.playSequence(currentMessage, () => {
+      const activeAudio = getCurrentAudio();
+      choreographerRef.current.playSequence(currentMessage, activeAudio, () => {
         if (avatarRef.current?.assistant) {
           avatarRef.current.assistant.setMode("idle");
         }

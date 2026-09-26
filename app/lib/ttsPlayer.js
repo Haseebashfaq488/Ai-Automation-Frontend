@@ -4,11 +4,75 @@ import { apiFetch } from "./api";
  * ttsPlayer
  * Singleton audio player that fetches and plays Microsoft Edge Neural TTS audio
  * streamed from the backend endpoint `/agent/tts`.
+ * Provides real-time volume analysis for audio-driven 3D lipsync.
  */
 
 let currentAudio = null;
 let currentAudioUrl = null;
 let isMuted = false;
+
+let audioCtx = null;
+let analyser = null;
+let currentSource = null;
+let frequencyData = null;
+
+function setupAudioAnalysis(audio) {
+  try {
+    if (typeof window === "undefined") return;
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return;
+
+    if (!audioCtx) {
+      audioCtx = new AudioContextClass();
+    }
+    if (audioCtx.state === "suspended") {
+      audioCtx.resume().catch(() => {});
+    }
+
+    if (!analyser) {
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 128;
+      analyser.smoothingTimeConstant = 0.3;
+      frequencyData = new Uint8Array(analyser.frequencyBinCount);
+    }
+
+    try {
+      if (currentSource) {
+        currentSource.disconnect();
+      }
+      currentSource = audioCtx.createMediaElementSource(audio);
+      currentSource.connect(analyser);
+      analyser.connect(audioCtx.destination);
+    } catch {
+      // Fallback: standard audio output
+    }
+  } catch (err) {
+    console.warn("[ttsPlayer] Audio analysis setup:", err);
+  }
+}
+
+export function getLiveAudioVolume() {
+  if (!currentAudio || currentAudio.paused) return 0;
+  if (!analyser || !frequencyData) {
+    return 0.4; // Graceful non-zero volume fallback while playing
+  }
+  try {
+    analyser.getByteFrequencyData(frequencyData);
+    let sum = 0;
+    const count = Math.min(frequencyData.length, 16);
+    for (let i = 0; i < count; i++) {
+      sum += frequencyData[i];
+    }
+    const avg = sum / (count * 255);
+    return Math.min(1.0, avg * 2.5);
+  } catch {
+    return 0.4;
+  }
+}
+
+export function getCurrentAudio() {
+  return currentAudio;
+}
 
 export function setTTSMuted(muted) {
   isMuted = Boolean(muted);
@@ -48,10 +112,10 @@ export function stopTTS() {
 /**
  * Synthesize and play speech for a given text message.
  * @param {string} text - Message containing text and optional <<<gesture>>> tags
- * @param {object} callbacks - { onStart, onEnd, onError }
+ * @param {object} callbacks - { onStart, onPlay, onEnd, onError }
  * @returns {Promise<void>}
  */
-export async function playTTS(text, { onStart, onEnd, onError } = {}) {
+export async function playTTS(text, { onStart, onPlay, onEnd, onError } = {}) {
   // Always stop previous audio immediately
   stopTTS();
 
@@ -81,7 +145,11 @@ export async function playTTS(text, { onStart, onEnd, onError } = {}) {
     const audio = new Audio(url);
     currentAudio = audio;
 
+    // Attach Web Audio API analyser for live lipsync
+    setupAudioAnalysis(audio);
+
     audio.onplay = () => {
+      onPlay?.({ audio, duration: audio.duration });
       onStart?.();
     };
 

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { getLiveAudioVolume } from '../../lib/ttsPlayer.js';
 
 /**
  * AvatarAssistantMode
@@ -160,43 +161,33 @@ export class AvatarAssistantMode {
   }
 
   /**
-   * Update speaking behaviors and realistic lip-sync visemes
+   * Update speaking behaviors and realistic audio-driven lip-sync visemes
    */
   updateSpeaking(delta) {
     this.speakingTime += delta;
     this.phonemeTimer += delta;
 
-    // 1. Viseme Switching with human speech cadence
-    if (this.isSpeechPause) {
-      if (this.phonemeTimer >= this.pauseDuration) {
-        this.isSpeechPause = false;
-        this.phonemeTimer = 0;
-        this.phonemeDuration = 0.09 + Math.random() * 0.12; // 90ms - 210ms per syllable
-        this.phonemeIndex = (this.phonemeIndex + 1) % this.visemes.length;
-        this.currentViseme = this.visemes[this.phonemeIndex];
-        this.targetVisemeIntensity = 0.6 + Math.random() * 0.4;
-      } else {
-        this.targetVisemeIntensity = 0.05;
-      }
+    // Read live audio volume from Web Audio API analyser
+    const liveVolume = getLiveAudioVolume();
+    const isAudioSilent = liveVolume < 0.04;
+
+    // 1. Viseme Switching modulated by actual audio volume
+    if (isAudioSilent) {
+      // Natural silence/pause in speech: mouth closes
+      this.targetVisemeIntensity = 0;
     } else {
       if (this.phonemeTimer >= this.phonemeDuration) {
         this.phonemeTimer = 0;
-        // 18% chance of brief conversational pause between words/sentences
-        if (Math.random() < 0.18) {
-          this.isSpeechPause = true;
-          this.pauseDuration = 0.15 + Math.random() * 0.25; // 150ms - 400ms pause
-          this.targetVisemeIntensity = 0;
-        } else {
-          this.phonemeDuration = 0.09 + Math.random() * 0.12;
-          this.phonemeIndex = (this.phonemeIndex + 1) % this.visemes.length;
-          this.currentViseme = this.visemes[this.phonemeIndex];
-          this.targetVisemeIntensity = 0.5 + Math.random() * 0.5;
-        }
+        this.phonemeDuration = 0.08 + Math.random() * 0.10;
+        this.phonemeIndex = (this.phonemeIndex + 1) % this.visemes.length;
+        this.currentViseme = this.visemes[this.phonemeIndex];
       }
+      // Target mouth intensity is directly driven by spoken volume!
+      this.targetVisemeIntensity = Math.min(1.0, 0.25 + liveVolume * 0.85);
     }
 
     // 2. Smoothly interpolate active viseme
-    const blendRate = 1.0 - Math.exp(-18.0 * delta);
+    const blendRate = 1.0 - Math.exp(-22.0 * delta);
     this.currentVisemeIntensity += (this.targetVisemeIntensity - this.currentVisemeIntensity) * blendRate;
 
     // Apply visemes directly to VRM Expression Manager
