@@ -131,6 +131,12 @@ export class AvatarExpression {
         weights: {},
         posture: { headPitch: -0.02, headYaw: -0.01, headRoll: 0.03, chestPitch: -0.02, shoulderLift: 0.01 }
       },
+      show_off_ring: {
+        // Proud, sassy smirk with charming wink and confident tilt
+        smile: { joy: 0.85, fun: 0.25 },
+        weights: { blinkRight: 0.75, ee: 0.15 },
+        posture: { headPitch: -0.04, headYaw: -0.03, headRoll: 0.05, chestPitch: -0.03, shoulderLift: 0.035 }
+      },
 
       // ==========================================
       // 2. GREETINGS & RESPECT (Eyes Open & Welcoming)

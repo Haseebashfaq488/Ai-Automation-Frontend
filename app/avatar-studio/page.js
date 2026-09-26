@@ -68,6 +68,7 @@ const GESTURE_CATEGORIES = {
       { id: "blowing_kiss", name: "Blowing Kiss", icon: "😘" },
       { id: "blush", name: "Blush Twirl", icon: "🌸" },
       { id: "cute_idle", name: "Cute Idle Sway", icon: "🎀" },
+      { id: "show_off_ring", name: "Show Off Ring", icon: "💍" },
     ],
   },
   conversational: {

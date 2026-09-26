@@ -55,6 +55,7 @@ export class VRMAnimationManager {
       blowing_kiss: '/avatar/animations/BlowingKiss.vrma',
       blush: '/avatar/animations/Blush.vrma',
       cute_idle: '/avatar/animations/CuteIdle.vrma',
+      show_off_ring: '/avatar/animations/ShowOffRing.vrma',
 
       // Conversational Assistant & Explaining
       talking: '/avatar/animations/Talking.vrma',
