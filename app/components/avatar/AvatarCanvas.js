@@ -21,6 +21,7 @@ import { getCurrentAudio } from "../../lib/ttsPlayer.js";
  * - onLoaded: Optional callback fired when VRM is fully loaded
  */
 export default function AvatarCanvas({
+  avatarUrl = "/avatar/Latest_Avatar.vrm",
   assistantState = "idle",
   currentMessage = "",
   isVoiceActive = false,
@@ -52,7 +53,7 @@ export default function AvatarCanvas({
 
     async function loadModel() {
       try {
-        const { vrm, inspection } = await loader.load("/avatar/model.vrm", (progress) => {
+        const { vrm, inspection } = await loader.load(avatarUrl, (progress) => {
           if (progress.total > 0 && isMounted) {
             setLoadProgress(Math.round((progress.loaded / progress.total) * 100));
           }
@@ -107,7 +108,7 @@ export default function AvatarCanvas({
         sceneRef.current.destroy();
       }
     };
-  }, [onLoaded]);
+  }, [avatarUrl, onLoaded]);
 
   // 2. React to Assistant State changes (listening / speaking / idle)
   useEffect(() => {

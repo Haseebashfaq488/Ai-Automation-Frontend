@@ -495,6 +495,7 @@ export default function Home() {
             </div>
 
             <AvatarCanvas
+              avatarUrl="/avatar/Latest_Avatar.vrm"
               assistantState={avatarState}
               currentMessage={avatarMessage}
               isVoiceActive={isVoiceActive}
