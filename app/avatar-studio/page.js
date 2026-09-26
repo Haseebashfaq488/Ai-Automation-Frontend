@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import {
@@ -152,7 +152,10 @@ export default function AvatarStudioPage() {
   const [sandboxText, setSandboxText] = useState(PRESET_SCRIPTS[0].text);
   const [selectedVoice, setSelectedVoice] = useState("en-US-AvaNeural");
   const [isMuted, setIsMuted] = useState(false);
-  const [liveVolume, setLiveVolume] = useState(0);
+
+  // Volume Bar DOM Refs (direct DOM updates eliminate React re-renders)
+  const volumeBarRef = useRef(null);
+  const volumeTextRef = useRef(null);
 
   // Model & Scene Controller
   const [selectedModel, setSelectedModel] = useState("/avatar/Latest_Avatar.vrm");
@@ -168,21 +171,28 @@ export default function AvatarStudioPage() {
     } catch {}
   }, []);
 
-  // Monitor live audio amplitude
+  // Monitor live audio amplitude directly via DOM
   useEffect(() => {
     let animId;
     function pollVolume() {
-      setLiveVolume(getLiveAudioVolume());
+      const vol = getLiveAudioVolume();
+      const pct = Math.round(vol * 100);
+      if (volumeBarRef.current) {
+        volumeBarRef.current.style.width = `${pct}%`;
+      }
+      if (volumeTextRef.current) {
+        volumeTextRef.current.textContent = `${pct}%`;
+      }
       animId = requestAnimationFrame(pollVolume);
     }
     animId = requestAnimationFrame(pollVolume);
     return () => cancelAnimationFrame(animId);
   }, []);
 
-  function handleLoaded({ avatar, scene }) {
+  const handleLoaded = useCallback(({ avatar, scene }) => {
     avatarControllerRef.current = avatar;
     sceneControllerRef.current = scene;
-  }
+  }, []);
 
   // Camera framing presets
   function setCameraPreset(preset) {
@@ -364,11 +374,11 @@ export default function AvatarStudioPage() {
                 <span className="text-zinc-500">Voice Amp:</span>
                 <div className="h-1.5 w-24 rounded-full bg-zinc-800 overflow-hidden">
                   <div
-                    className="h-full bg-gradient-to-r from-purple-500 to-emerald-400 transition-all duration-75"
-                    style={{ width: `${Math.round(liveVolume * 100)}%` }}
+                    ref={volumeBarRef}
+                    className="h-full w-0 bg-gradient-to-r from-purple-500 to-emerald-400 transition-all duration-75"
                   />
                 </div>
-                <span className="font-mono text-[10px] text-zinc-400">{Math.round(liveVolume * 100)}%</span>
+                <span ref={volumeTextRef} className="font-mono text-[10px] text-zinc-400">0%</span>
               </div>
             </div>
 

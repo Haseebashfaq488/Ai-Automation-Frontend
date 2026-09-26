@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, memo } from "react";
 import * as THREE from "three";
 import { AvatarScene } from "./AvatarScene.js";
 import { AvatarLoader } from "./AvatarLoader.js";
@@ -20,7 +20,7 @@ import { getCurrentAudio } from "../../lib/ttsPlayer.js";
  * - isTextActive: Boolean indicating user typing or input active
  * - onLoaded: Optional callback fired when VRM is fully loaded
  */
-export default function AvatarCanvas({
+function AvatarCanvas({
   avatarUrl = "/avatar/Latest_Avatar.vrm",
   assistantState = "idle",
   currentMessage = "",
@@ -39,7 +39,12 @@ export default function AvatarCanvas({
   const [loadProgress, setLoadProgress] = useState(0);
   const [loadError, setLoadError] = useState(null);
 
-  // 1. Mount & Initialize 3D Avatar
+  const onLoadedRef = useRef(onLoaded);
+  useEffect(() => {
+    onLoadedRef.current = onLoaded;
+  }, [onLoaded]);
+
+  // 1. Mount & Initialize 3D Avatar (only runs once on mount, or when avatarUrl changes)
   useEffect(() => {
     let isMounted = true;
     const container = containerRef.current;
@@ -76,7 +81,9 @@ export default function AvatarCanvas({
         choreographerRef.current = choreographer;
 
         setIsLoading(false);
-        if (onLoaded) onLoaded({ avatar, inspection, scene, choreographer });
+        if (onLoadedRef.current) {
+          onLoadedRef.current({ avatar, inspection, scene, choreographer });
+        }
 
         // Start render loop
         const clock = new THREE.Clock();
@@ -108,7 +115,7 @@ export default function AvatarCanvas({
         sceneRef.current.destroy();
       }
     };
-  }, [avatarUrl, onLoaded]);
+  }, [avatarUrl]);
 
   // 2. React to Assistant State changes (listening / speaking / idle)
   useEffect(() => {
@@ -204,3 +211,5 @@ export default function AvatarCanvas({
     </div>
   );
 }
+
+export default memo(AvatarCanvas);
