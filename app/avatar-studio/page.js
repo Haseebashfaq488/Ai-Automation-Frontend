@@ -176,6 +176,7 @@ export default function AvatarStudioPage() {
   const [selectedModel, setSelectedModel] = useState("/avatar/Latest_Avatar.vrm");
   const avatarControllerRef = useRef(null);
   const sceneControllerRef = useRef(null);
+  const choreographerRef = useRef(null);
 
   // Sync stored voice
   useEffect(() => {
@@ -204,9 +205,10 @@ export default function AvatarStudioPage() {
     return () => cancelAnimationFrame(animId);
   }, []);
 
-  const handleLoaded = useCallback(({ avatar, scene }) => {
+  const handleLoaded = useCallback(({ avatar, scene, choreographer }) => {
     avatarControllerRef.current = avatar;
     sceneControllerRef.current = scene;
+    choreographerRef.current = choreographer;
   }, []);
 
   // Camera framing presets
@@ -235,13 +237,19 @@ export default function AvatarStudioPage() {
     avatar.animations.play(gestureId, { loop: shouldLoop, fadeDuration: 0.35 });
   }
 
-  // Stop motion
+  // Stop motion and any active speech / sequence
   function stopMotion() {
     const avatar = avatarControllerRef.current;
-    if (!avatar) return;
     stopTTS();
-    avatar.animations?.stop(0.4);
+    if (choreographerRef.current) {
+      choreographerRef.current.stop(0.35);
+    }
+    if (avatar) {
+      avatar.animations?.stop(0.4);
+      avatar.assistant?.setMode("idle");
+    }
     setActiveGesture("none");
+    setAssistantMode("idle");
   }
 
   // Apply facial emotion
@@ -272,32 +280,63 @@ export default function AvatarStudioPage() {
     }, 700);
   }
 
-  // Run full speech choreography
+  // Run full speech choreography synchronized with Edge TTS audio
   async function runChoreography(script) {
-    const avatar = avatarControllerRef.current;
     const textToRun = script || sandboxText;
     if (!textToRun.trim()) return;
 
-    setAssistantMode("speaking");
+    if (script && script !== sandboxText) {
+      setSandboxText(script);
+    }
+
     stopTTS();
+    if (choreographerRef.current) {
+      choreographerRef.current.stop(0.35);
+    }
 
     playTTS(textToRun, {
       voice: selectedVoice,
       onPlay: ({ audio }) => {
         setAssistantMode("speaking");
-        if (avatar) {
-          avatar.assistant.setMode("speaking");
+        if (choreographerRef.current) {
+          choreographerRef.current.playSequence(
+            textToRun,
+            audio,
+            () => {
+              setAssistantMode("idle");
+              setActiveGesture("none");
+            },
+            (chunk) => {
+              setActiveGesture(chunk.gesture);
+              setActiveEmotion(chunk.expression);
+            }
+          );
         }
       },
       onEnd: () => {
         setAssistantMode("idle");
-        if (avatar) {
-          avatar.assistant.setMode("idle");
+        setActiveGesture("none");
+        if (choreographerRef.current) {
+          choreographerRef.current.stop(0.4);
         }
       },
-      onError: () => {
+      onError: (err) => {
+        console.warn("[AvatarStudio] Edge TTS fallback:", err);
         setAssistantMode("speaking");
-        setTimeout(() => setAssistantMode("idle"), 4000);
+        if (choreographerRef.current) {
+          choreographerRef.current.playSequence(
+            textToRun,
+            null,
+            () => {
+              setAssistantMode("idle");
+              setActiveGesture("none");
+            },
+            (chunk) => {
+              setActiveGesture(chunk.gesture);
+              setActiveEmotion(chunk.expression);
+            }
+          );
+        }
       },
     });
   }

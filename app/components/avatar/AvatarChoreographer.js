@@ -138,11 +138,12 @@ export class AvatarChoreographer {
    * @param {HTMLAudioElement|null} [audioElement] - Live playing audio element to track currentTime
    * @param {function} [onComplete] - Callback when the full sequence ends
    */
-  playSequence(fullText, audioElement, onComplete) {
+  playSequence(fullText, audioElement, onComplete, onChunkChange) {
     this.stop(); // Clear any existing sequence
 
     // Support optional 2nd arg being onComplete if no audio passed
     if (typeof audioElement === 'function') {
+      onChunkChange = onComplete;
       onComplete = audioElement;
       audioElement = null;
     }
@@ -174,6 +175,15 @@ export class AvatarChoreographer {
         } catch (err) {
           console.warn(`[AvatarChoreographer] Gesture '${chunk.gesture}' failed, fallback to talking:`, err);
           this.avatar.animations.play('talking', { loop: true, fadeDuration: 0.35 });
+        }
+      }
+
+      // 3. Notify chunk change callback (e.g. for studio HUD)
+      if (typeof onChunkChange === 'function') {
+        try {
+          onChunkChange(chunk);
+        } catch (e) {
+          // ignore
         }
       }
     };

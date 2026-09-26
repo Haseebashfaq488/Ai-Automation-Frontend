@@ -38,7 +38,11 @@ It provides real-time manual testing and preview controls for:
 ### Tab 4: Speech & Delimiter Sandbox
 - Preset demonstration scripts showcasing greeting, affection, professional assistant, and celebratory choreographies.
 - Textarea allowing custom inline delimiters (e.g. `<<<gesture: greeting, expression: happy_wave>>> Hello!`).
-- Edge TTS voice selector (Ava, Jenny, Sonia, Guy, Christopher, Brian).
+- **Synchronized Audio & Animation Engine**: Directly connects `playTTS` audio element with `AvatarChoreographer.playSequence(...)`:
+  - Listens to audio playback timestamps in real-time.
+  - Automatically triggers corresponding 3D gestures and facial expressions at the exact second each sentence/phrase is vocalized.
+  - Live HUD updates (`activeGesture`, `activeEmotion`) in real-time as each spoken segment advances.
+- Edge TTS voice selector (Ava, Ana, Aria, Emma, Jenny, Andrew).
 - Direct DOM real-time voice amplitude gauge.
 
 ---
