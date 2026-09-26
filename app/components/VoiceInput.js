@@ -491,6 +491,7 @@ export function AudioVisualizerWave({ level = 0, isListening = false, barCount =
 export default function VoiceInput({
   onTranscriptInsert,
   onAutoSend,
+  onListeningChange,
   inputPlaceholder = "",
   disabled = false,
 }) {
@@ -524,6 +525,12 @@ export default function VoiceInput({
       }
     },
   });
+
+  useEffect(() => {
+    if (onListeningChange) {
+      onListeningChange(isListening);
+    }
+  }, [isListening, onListeningChange]);
 
   const handleFinish = (shouldSend = false) => {
     const fullText = `${transcript} ${interimTranscript}`.trim();

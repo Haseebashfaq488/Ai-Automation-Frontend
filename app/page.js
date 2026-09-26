@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { UserBubble, BotMessage } from "./components/Chat";
 import VoiceInput from "./components/VoiceInput";
@@ -8,7 +9,20 @@ import ActivityFeed from "./components/ActivityFeed";
 import TaskChainTracker from "./components/TaskChainTracker";
 import PowerControls from "./components/PowerControls";
 
+const AvatarCanvas = dynamic(() => import("./components/avatar/AvatarCanvas"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-full w-full min-h-[300px] items-center justify-center rounded-2xl border border-zinc-800 bg-zinc-950/80 text-xs text-zinc-500">
+      <div className="flex items-center gap-2">
+        <span className="h-2 w-2 animate-ping rounded-full bg-purple-500" />
+        <span>Loading 3D Avatar...</span>
+      </div>
+    </div>
+  ),
+});
+
 import { API_URL, apiFetch } from "./lib/api";
+import { playTTS, stopTTS, setTTSMuted } from "./lib/ttsPlayer";
 const CHAT_STORAGE_KEY = "jarvis_chat_messages";
 
 function generateId() {
@@ -50,6 +64,47 @@ export default function Home() {
   const [editingScope, setEditingScope] = useState(false);
   const [customScopeInput, setCustomScopeInput] = useState("");
   const endRef = useRef(null);
+
+  // 3D VRM Avatar States
+  const [showAvatar, setShowAvatar] = useState(true);
+  const [avatarState, setAvatarState] = useState("idle");
+  const [avatarMessage, setAvatarMessage] = useState("");
+  const [isVoiceActive, setIsVoiceActive] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const avatarTimeoutRef = useRef(null);
+
+  // Active ONLY when the user has actually typed non-empty text
+  const isTextActive = Boolean(input.trim());
+
+  function triggerAvatarSpeech(text) {
+    if (!text || typeof text !== "string") return;
+    if (avatarTimeoutRef.current) {
+      clearTimeout(avatarTimeoutRef.current);
+      avatarTimeoutRef.current = null;
+    }
+
+    // Immediately trigger speaking state and speech choreography
+    setAvatarState("speaking");
+    setAvatarMessage(text);
+
+    // Play Edge Neural Voice
+    playTTS(text, {
+      onStart: () => {
+        setAvatarState("speaking");
+      },
+      onEnd: () => {
+        setAvatarState((prev) => (prev === "speaking" ? "idle" : prev));
+      },
+      onError: (err) => {
+        console.warn("[TTS] Edge TTS audio fallback:", err);
+        const wordCount = text.split(/\s+/).filter(Boolean).length;
+        const durationMs = Math.max(3500, Math.min(14000, wordCount * 360));
+        avatarTimeoutRef.current = setTimeout(() => {
+          setAvatarState((prev) => (prev === "speaking" ? "idle" : prev));
+        }, durationMs);
+      },
+    });
+  }
 
   // Load stored messages & workspace scope after mount to prevent hydration mismatch
   useEffect(() => {
@@ -125,6 +180,10 @@ export default function Home() {
     const prompt = text.trim();
     if (!prompt || busy) return;
 
+    // Cut off any active speech or timer immediately
+    stopTTS();
+    if (avatarTimeoutRef.current) clearTimeout(avatarTimeoutRef.current);
+
     const botId = generateId();
     setMessages((m) => [
       ...m,
@@ -133,6 +192,7 @@ export default function Home() {
     ]);
     setInput("");
     setBusy(true);
+    setAvatarState("listening");
 
     try {
       const result = await callAgent({ prompt, fs_scope: fsScope });
@@ -141,12 +201,19 @@ export default function Home() {
           msg.id === botId ? { ...msg, thinking: false, data: result } : msg
         )
       );
+      const botText = result?.message || result?.reasoning || (result?.steps ? "Here is the plan of action." : "");
+      if (botText) {
+        triggerAvatarSpeech(botText);
+      } else {
+        setAvatarState("idle");
+      }
     } catch (e) {
       setMessages((m) =>
         m.map((msg) =>
           msg.id === botId ? { ...msg, thinking: false, error: e.message } : msg
         )
       );
+      triggerAvatarSpeech(`I encountered an issue: ${e.message}`);
     } finally {
       setBusy(false);
     }
@@ -156,6 +223,10 @@ export default function Home() {
     if (busy || confirmedPlanIds.has(planId)) return;
     setBusy(true);
     setConfirmedPlanIds((prev) => new Set([...prev, planId]));
+
+    stopTTS();
+    if (avatarTimeoutRef.current) clearTimeout(avatarTimeoutRef.current);
+    setAvatarState("listening");
 
     const botId = generateId();
     setMessages((m) => [...m, { id: botId, role: "bot", prompt, thinking: true }]);
@@ -167,18 +238,24 @@ export default function Home() {
           msg.id === botId ? { ...msg, thinking: false, data: result } : msg
         )
       );
+      const botText = result?.message || result?.reasoning || "Execution finished successfully.";
+      triggerAvatarSpeech(botText);
     } catch (e) {
       setMessages((m) =>
         m.map((msg) =>
           msg.id === botId ? { ...msg, thinking: false, error: e.message } : msg
         )
       );
+      triggerAvatarSpeech(`Execution failed: ${e.message}`);
     } finally {
       setBusy(false);
     }
   }
 
   async function newChat() {
+    stopTTS();
+    if (avatarTimeoutRef.current) clearTimeout(avatarTimeoutRef.current);
+    setAvatarState("idle");
     setMessages([]);
     setConfirmedPlanIds(new Set());
     try {
@@ -284,6 +361,18 @@ export default function Home() {
             <span className="sm:hidden">CLI</span>
           </button>
           <button
+            onClick={() => setShowAvatar((prev) => !prev)}
+            title="Toggle 3D Live Avatar"
+            className={`inline-flex items-center gap-1 sm:gap-1.5 rounded-xl border px-2.5 sm:px-3.5 py-1 sm:py-1.5 text-xs font-semibold shadow-sm transition ${
+              showAvatar
+                ? "border-purple-500 bg-purple-950/80 text-purple-200 shadow-purple-950/50"
+                : "border-zinc-800 bg-zinc-900/80 text-zinc-300 hover:border-purple-700/60 hover:text-white"
+            }`}
+          >
+            <span>🎭</span>
+            <span className="hidden sm:inline">Avatar</span>
+          </button>
+          <button
             onClick={newChat}
             disabled={busy}
             title="Clear current screen (brain memory is retained)"
@@ -351,6 +440,79 @@ export default function Home() {
             <div ref={endRef} />
           </div>
         </div>
+
+        {/* 3D VRM Live Avatar Panel */}
+        {showAvatar && (
+          <div className="hidden lg:flex flex-col w-[320px] xl:w-[360px] shrink-0 border-l border-zinc-800/80 bg-zinc-950/40 p-3.5 overflow-hidden">
+            <div className="flex items-center justify-between pb-2 px-1 text-xs border-b border-zinc-800/60 mb-2.5">
+              <span className="font-semibold text-zinc-200 flex items-center gap-1.5">
+                <span>🤖</span>
+                <span>Jarvis Live Avatar</span>
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !isMuted;
+                    setIsMuted(next);
+                    setTTSMuted(next);
+                  }}
+                  className={`rounded-lg px-2 py-0.5 text-xs transition border flex items-center gap-1 font-mono ${
+                    isMuted
+                      ? "border-zinc-700 bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+                      : "border-purple-800/60 bg-purple-950/60 text-purple-300 hover:bg-purple-900/60"
+                  }`}
+                  title={isMuted ? "Unmute Edge TTS voice" : "Mute Edge TTS voice"}
+                >
+                  <span>{isMuted ? "🔇" : "🔊"}</span>
+                  <span className="text-[10px]">{isMuted ? "Muted" : "Edge TTS"}</span>
+                </button>
+                <span className="flex items-center gap-1.5 text-[11px] text-purple-400 font-mono">
+                  <span
+                    className={`h-2 w-2 rounded-full ${
+                      avatarState === "speaking"
+                        ? "bg-emerald-400 animate-pulse"
+                        : avatarState === "listening" || isVoiceActive || isTextActive
+                        ? "bg-purple-400 animate-ping"
+                        : "bg-zinc-500"
+                    }`}
+                  />
+                  {avatarState === "speaking"
+                    ? "Speaking"
+                    : avatarState === "listening" || isVoiceActive || isTextActive
+                    ? "Listening"
+                    : "Idle"}
+                </span>
+              </div>
+            </div>
+
+            <AvatarCanvas
+              assistantState={avatarState}
+              currentMessage={avatarMessage}
+              isVoiceActive={isVoiceActive}
+              isTextActive={isTextActive}
+              className="h-[360px] w-full"
+            />
+
+            <div className="mt-3 rounded-xl border border-zinc-800/60 bg-zinc-900/40 p-3 text-xs">
+              <div className="flex items-center justify-between text-[11px] text-zinc-400">
+                <span className="font-semibold text-zinc-300">Inline Delimiter Engine</span>
+                <span className="rounded bg-purple-950/80 px-1.5 py-0.5 text-[10px] font-mono text-purple-300 border border-purple-800/40">
+                  Direct Sequence
+                </span>
+              </div>
+              <p className="mt-1.5 text-[11px] text-zinc-400 leading-relaxed truncate">
+                {avatarState === "speaking"
+                  ? `Choreography: "${avatarMessage.slice(0, 50)}${avatarMessage.length > 50 ? '...' : ''}"`
+                  : isVoiceActive
+                  ? "Listening to voice input..."
+                  : isTextActive
+                  ? "Listening • typing active"
+                  : "Idle • Breathing & tracking eyes"}
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
       <footer className="border-t border-zinc-800/80 bg-zinc-900/40 p-2.5 sm:p-4 backdrop-blur-md">
@@ -443,7 +605,28 @@ export default function Home() {
         <div className="mx-auto flex max-w-2xl items-center gap-2 sm:gap-2.5">
           <input
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onFocus={() => {
+              if (input.trim()) {
+                stopTTS();
+                setAvatarState("listening");
+              }
+            }}
+            onBlur={() => {
+              if (!input.trim() && !isVoiceActive && !busy) {
+                setAvatarState("idle");
+              }
+            }}
+            onChange={(e) => {
+              const val = e.target.value;
+              setInput(val);
+              if (val.trim()) {
+                stopTTS();
+                if (avatarTimeoutRef.current) clearTimeout(avatarTimeoutRef.current);
+                setAvatarState("listening");
+              } else if (!isVoiceActive && !busy) {
+                setAvatarState("idle");
+              }
+            }}
             onKeyDown={(e) => e.key === "Enter" && sendPrompt(input)}
             placeholder='Ask Jarvis or click 🎙️ / Alt+V...'
             disabled={busy}
@@ -451,6 +634,16 @@ export default function Home() {
           />
           <VoiceInput
             disabled={busy}
+            onListeningChange={(active) => {
+              setIsVoiceActive(active);
+              if (active) {
+                stopTTS();
+                setAvatarState("listening");
+                if (avatarTimeoutRef.current) clearTimeout(avatarTimeoutRef.current);
+              } else {
+                setAvatarState((prev) => (prev === "listening" ? "idle" : prev));
+              }
+            }}
             onTranscriptInsert={(text) => {
               setInput((prev) => (prev ? `${prev} ${text}` : text));
             }}

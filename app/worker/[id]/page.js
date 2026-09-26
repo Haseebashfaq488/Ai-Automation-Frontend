@@ -115,11 +115,14 @@ export default function WorkerPage() {
   }, [sessionId]);
 
   // ── 4. Plan Approval Action ───────────────────────────────────────────
-  const approvePlan = useCallback(async (customPlan) => {
+  const approvePlan = useCallback(async (customPlan, skipTesting = false) => {
     setApprovingPlan(true);
     setPlanActionMsg(null);
     try {
-      const payload = customPlan !== undefined ? { plan: customPlan } : (planText ? { plan: planText } : {});
+      const payload = {
+        plan: customPlan !== undefined ? customPlan : (planText || undefined),
+        skip_testing: Boolean(skipTesting),
+      };
       const res = await apiFetch(`/workers/${sessionId}/approve-plan`, {
         method: "POST",
         body: JSON.stringify(payload),
@@ -129,10 +132,11 @@ export default function WorkerPage() {
       setState((prev) => prev ? {
         ...prev,
         status: "running",
-        current_step: "Job 2: Execute Implementation Plan",
+        current_step: "Job 2: Execute Implementation Plan" + (skipTesting ? " (Testing Skipped)" : ""),
         plan_status: "approved",
+        skip_testing: Boolean(skipTesting),
       } : prev);
-      setPlanActionMsg({ type: "success", text: "✓ Implementation plan approved! Worker starting Job 2 (Execution)..." });
+      setPlanActionMsg({ type: "success", text: `✓ Implementation plan approved! Worker starting Job 2 (Execution)${skipTesting ? " [Self-testing will be skipped]" : ""}...` });
       setTimeout(() => setPlanActionMsg(null), 7000);
       setActiveTab("terminal");
     } catch (e) {
@@ -167,6 +171,19 @@ export default function WorkerPage() {
       setPlanActionMsg({ type: "error", text: `Revision request failed: ${e.message}` });
     } finally {
       setRejectingPlan(false);
+    }
+  }, [sessionId]);
+
+  // ── 5b. Skip Self-Testing Action ─────────────────────────────────────
+  const skipTestingAction = useCallback(async () => {
+    if (!sessionId) return;
+    try {
+      await apiFetch(`/workers/${sessionId}/skip-testing`, { method: "POST" });
+      setState((prev) => prev ? { ...prev, skip_testing: true } : prev);
+      setPlanActionMsg({ type: "warning", text: "✓ Self-testing phase will be skipped." });
+      setTimeout(() => setPlanActionMsg(null), 5000);
+    } catch (e) {
+      console.error("Failed to skip testing:", e);
     }
   }, [sessionId]);
 
@@ -594,13 +611,24 @@ export default function WorkerPage() {
           </span>
 
           {state?.status === "running" && (state?.progress_percent ?? 0) < 100 && (
-            <button
-              onClick={cancelWorker}
-              disabled={cancelling}
-              className="rounded-lg border border-red-900/60 bg-red-950/40 px-2.5 sm:px-3 py-1 sm:py-1.5 text-xs font-medium text-red-300 transition hover:bg-red-900/60 disabled:opacity-50"
-            >
-              {cancelling ? "Cancelling…" : "Cancel"}
-            </button>
+            <>
+              {!state?.skip_testing && (
+                <button
+                  onClick={skipTestingAction}
+                  title="Skip automated verification tests (Job 3)"
+                  className="rounded-lg border border-amber-800/60 bg-amber-950/40 px-2.5 sm:px-3 py-1 sm:py-1.5 text-xs font-medium text-amber-300 transition hover:bg-amber-900/60"
+                >
+                  Skip Tests
+                </button>
+              )}
+              <button
+                onClick={cancelWorker}
+                disabled={cancelling}
+                className="rounded-lg border border-red-900/60 bg-red-950/40 px-2.5 sm:px-3 py-1 sm:py-1.5 text-xs font-medium text-red-300 transition hover:bg-red-900/60 disabled:opacity-50"
+              >
+                {cancelling ? "Cancelling…" : "Cancel"}
+              </button>
+            </>
           )}
         </div>
       </header>
@@ -1480,6 +1508,7 @@ function PlanApprovalCard({
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [draftPlan, setDraftPlan] = useState(planText || "");
+  const [skipTesting, setSkipTesting] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [showFeedbackBox, setShowFeedbackBox] = useState(false);
 
@@ -1583,6 +1612,17 @@ function PlanApprovalCard({
 
         {isAwaiting && (
           <div className="flex items-center gap-2 flex-wrap">
+            {/* Skip Verification Toggle */}
+            <label className="inline-flex items-center gap-1.5 rounded-xl border border-zinc-700/80 bg-zinc-900/90 px-3 py-1.5 font-medium text-zinc-300 cursor-pointer hover:border-zinc-500 hover:text-white transition select-none">
+              <input
+                type="checkbox"
+                checked={skipTesting}
+                onChange={(e) => setSkipTesting(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-zinc-600 text-sky-500 focus:ring-0 bg-zinc-950 cursor-pointer accent-sky-500"
+              />
+              <span>Skip Verification (Job 3)</span>
+            </label>
+
             <button
               onClick={() => setShowFeedbackBox(!showFeedbackBox)}
               className="inline-flex items-center gap-1.5 rounded-xl border border-zinc-700 bg-zinc-800/80 px-3 py-1.5 font-medium text-zinc-300 transition hover:border-amber-600/50 hover:bg-zinc-800 hover:text-white"
@@ -1592,7 +1632,7 @@ function PlanApprovalCard({
             </button>
 
             <button
-              onClick={() => onApprove(isEditing ? draftPlan : undefined)}
+              onClick={() => onApprove(isEditing ? draftPlan : draftPlan || planText, skipTesting)}
               disabled={approving || rejecting}
               className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-1.5 font-semibold text-white shadow-lg shadow-emerald-950/40 transition hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50"
             >
