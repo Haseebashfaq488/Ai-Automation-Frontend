@@ -46,11 +46,11 @@ export class VRMAvatar {
     this.expressions.update(delta);
     const emoOffsets = this.expressions.getBodyOffsets();
 
-    // 2. Skeletal Motion: Either standard mocap VRMA animation or procedural idle/gestures
-    if (this.animations.hasActiveAction()) {
-      this.animations.update(delta);
-    } else {
-      // Procedural gestures and breathing
+    // 2. Skeletal Motion: Animation mixer updates every frame
+    this.animations.update(delta);
+
+    // If no mocap animation is driving the skeleton, run procedural idle & breathing
+    if (!this.animations.hasActiveAction()) {
       this.gestures.setEmotion(this.expressions.activeEmotion);
       const breathCycle = this.breathing.getBreathCycle();
       this.gestures.update(delta, breathCycle);

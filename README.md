@@ -14,6 +14,8 @@ Next.js 16 frontend control plane for the **Jarvis AI Assistant & Autonomous Wor
 - 🤖 **Autonomous Worker Fleet Dashboard**: Fork coding and automation tasks, search & monitor active sessions in real time.
 - 📟 **Real-time Live Worker Console**: Server-Sent Events (SSE) streaming console, step-by-step trace inspection, user intervention, and artifact downloads.
 - 🎙️ **Voice Control**: Browser speech recognition with auto-silence detection and voice command streaming.
+- 🎭 **3D VRM Avatar & Mocap Engine**: Interactive 3D avatar with 43 mocap animations, spring-bone hair/cloth physics, emotion blendshapes, and Edge Neural TTS speech-timed choreography.
+- 🧪 **Avatar Testing Studio (`/avatar-studio`)**: Real-time playground to test all 43 mocap animations, viseme lip-sync, camera presets, and delimiter-driven speech scripts.
 - 📡 **Real-time Event Stream**: Live global activity feed listening to the backend event bus.
 
 ---

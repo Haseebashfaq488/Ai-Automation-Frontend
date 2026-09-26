@@ -27,6 +27,14 @@ export class VRMAnimationManager {
     this.currentAction = null;
     this.activeAnimationName = null;
 
+    // Listen for completion of non-looping clips and smoothly return to idle
+    this.mixer.addEventListener('finished', (e) => {
+      if (e.action === this.currentAction) {
+        console.log(`[VRMAnimationManager] Finished single-shot animation: ${this.activeAnimationName}`);
+        this.stop(0.4);
+      }
+    });
+
     // Available animation catalog
     this.catalog = {
       // Greetings & Bows
@@ -223,10 +231,13 @@ export class VRMAnimationManager {
   stop(fadeDuration = 0.4) {
     if (this.currentAction) {
       this.currentAction.fadeOut(fadeDuration);
+      const actionToStop = this.currentAction;
       setTimeout(() => {
-        if (!this.activeAnimationName && this.currentAction) {
-          this.currentAction.stop();
-          this.currentAction = null;
+        if (!this.activeAnimationName) {
+          actionToStop.stop();
+          if (this.currentAction === actionToStop) {
+            this.currentAction = null;
+          }
         }
       }, fadeDuration * 1000);
     }
@@ -235,7 +246,12 @@ export class VRMAnimationManager {
   }
 
   hasActiveAction() {
-    return Boolean(this.activeAnimationName || (this.currentAction && this.currentAction.isRunning()));
+    return Boolean(
+      this.activeAnimationName &&
+      this.currentAction &&
+      this.currentAction.isRunning() &&
+      this.currentAction.getEffectiveWeight() > 0.05
+    );
   }
 
   /**

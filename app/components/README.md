@@ -14,6 +14,7 @@ The `app/components/` directory houses reusable UI components across the Jarvis 
 | **ActivityFeed** | [`ActivityFeed.js`](file:///d:/AI-Automation/AI-Automation%20Frontend/app/components/ActivityFeed.js) | Slide-out right drawer subscribing to `/events/stream` (SSE) to render audit trails and real-time event logs across all workers.<br>**Props**: `isOpen`, `onClose`. |
 | **PowerControls** | [`PowerControls.js`](file:///d:/AI-Automation/AI-Automation%20Frontend/app/components/PowerControls.js) | System hardware controls (sleep, lock, hibernate) and battery / backend connectivity diagnostics. |
 | **ToolOutputViewer** | [`ToolOutputViewer.js`](file:///d:/AI-Automation/AI-Automation%20Frontend/app/components/ToolOutputViewer.js) | Syntax-highlighted and collapsible modal for raw tool execution outputs, JSON payloads, and diffs.<br>**Props**: `output`, `isOpen`, `onClose`. |
+| **AvatarCanvas** | [`avatar/AvatarCanvas.js`](file:///d:/AI-Automation/AI-Automation%20Frontend/app/components/avatar/AvatarCanvas.js) | WebGL 3D VRM canvas with Three.js renderer, 43 mocap animations, speech delimiter choreography, and assistant mode states.<br>See [`avatar/README.md`](file:///d:/AI-Automation/AI-Automation%20Frontend/app/components/avatar/README.md).<br>**Props**: `avatarUrl`, `assistantState`, `currentMessage`, `isVoiceActive`, `isTextActive`, `onLoaded`. |
 
 ---
 

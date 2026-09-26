@@ -28,6 +28,21 @@ const AvatarCanvas = dynamic(() => import("../components/avatar/AvatarCanvas"), 
 });
 
 const GESTURE_CATEGORIES = {
+  idle: {
+    label: "🧘 Idle & Stances",
+    items: [
+      { id: "cute_idle", name: "Cute Idle Sway", icon: "🎀", isLoop: true },
+      { id: "happy_idle", name: "Upbeat Bounce", icon: "🎈", isLoop: true },
+      { id: "relax", name: "Chill Relax", icon: "☕", isLoop: true },
+      { id: "model_pose", name: "Fashion Model", icon: "📸", isLoop: true },
+      { id: "hands_on_hips", name: "Hands on Hips", icon: "💃", isLoop: true },
+      { id: "look_around", name: "Look Around", icon: "👀", isLoop: false },
+      { id: "neck_stretch", name: "Neck Stretch", icon: "🙆", isLoop: false },
+      { id: "relieved", name: "Relieved Sigh", icon: "😮‍💨", isLoop: false },
+      { id: "sleepy", name: "Sleepy Yawn", icon: "🥱", isLoop: false },
+      { id: "curious_leaning", name: "Curious Lean", icon: "🧐", isLoop: false },
+    ],
+  },
   greetings: {
     label: "👋 Greetings & Bows",
     items: [
@@ -141,7 +156,7 @@ const PRESET_SCRIPTS = [
 
 export default function AvatarStudioPage() {
   const [activeTab, setActiveTab] = useState("gestures"); // gestures | emotions | assistant | sandbox
-  const [selectedCategory, setSelectedCategory] = useState("greetings");
+  const [selectedCategory, setSelectedCategory] = useState("idle");
   const [activeGesture, setActiveGesture] = useState("none");
   const [activeEmotion, setActiveEmotion] = useState("neutral");
   const [assistantMode, setAssistantMode] = useState("idle"); // idle | listening | speaking
@@ -211,12 +226,13 @@ export default function AvatarStudioPage() {
     scene.controls?.update();
   }
 
-  // Play gesture immediately
-  function triggerGesture(gestureId) {
+  // Play gesture or idle stance immediately
+  function triggerGesture(gestureId, itemIsLoop = false) {
     const avatar = avatarControllerRef.current;
     if (!avatar || !avatar.animations) return;
     setActiveGesture(gestureId);
-    avatar.animations.play(gestureId, { loop: isLooping, fadeDuration: 0.35 });
+    const shouldLoop = isLooping || Boolean(itemIsLoop);
+    avatar.animations.play(gestureId, { loop: shouldLoop, fadeDuration: 0.35 });
   }
 
   // Stop motion
@@ -485,7 +501,7 @@ export default function AvatarStudioPage() {
                     <button
                       key={item.id}
                       type="button"
-                      onClick={() => triggerGesture(item.id)}
+                      onClick={() => triggerGesture(item.id, item.isLoop)}
                       className={`flex items-center justify-between rounded-xl border p-2.5 text-left transition ${
                         activeGesture === item.id
                           ? "border-emerald-500/80 bg-emerald-950/40 text-emerald-200 shadow-md shadow-emerald-950/40"
@@ -496,7 +512,18 @@ export default function AvatarStudioPage() {
                         <span className="text-base">{item.icon}</span>
                         <div className="truncate">
                           <p className="text-xs font-medium truncate">{item.name}</p>
-                          <p className="text-[10px] font-mono text-zinc-500 truncate">{item.id}</p>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className="text-[10px] font-mono text-zinc-500 truncate">{item.id}</span>
+                            {item.isLoop ? (
+                              <span className="rounded bg-purple-950/80 px-1 py-0.2 text-[9px] font-mono text-purple-300 border border-purple-800/40">
+                                Loop
+                              </span>
+                            ) : (
+                              <span className="rounded bg-zinc-800 px-1 py-0.2 text-[9px] font-mono text-zinc-400">
+                                1-Shot
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                       <span className="text-zinc-600 text-xs">▶</span>

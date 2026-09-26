@@ -17,7 +17,9 @@ The `app/` directory serves as the root of the Next.js 16 (App Router) frontend 
 
 ## 3. Subdirectory Architecture
 * [`components/`](file:///d:/AI-Automation/AI-Automation%20Frontend/app/components/README.md): Modular UI blocks (TaskChainTracker, Chat, VoiceInput, PowerControls, ActivityFeed).
-* [`lib/`](file:///d:/AI-Automation/AI-Automation%20Frontend/app/lib/README.md): Network layer, `apiFetch` wrapper, and base URL resolution.
+  * [`components/avatar/`](file:///d:/AI-Automation/AI-Automation%20Frontend/app/components/avatar/README.md): 3D VRM avatar runtime, Three.js canvas, 43 mocap animations, and speech-timed choreographer.
+* [`avatar-studio/`](file:///d:/AI-Automation/AI-Automation%20Frontend/app/avatar-studio/README.md): Interactive testing studio and QA playground for 3D gestures, expressions, camera presets, and delimiter sandbox.
+* [`lib/`](file:///d:/AI-Automation/AI-Automation%20Frontend/app/lib/README.md): Network layer, `apiFetch` wrapper, Edge TTS player, and base URL resolution.
 * [`workers/`](file:///d:/AI-Automation/AI-Automation%20Frontend/app/workers/README.md): Autonomous worker launcher (`ForkForm`) and active session dashboard.
 * [`worker/[id]/`](file:///d:/AI-Automation/AI-Automation%20Frontend/app/worker/%5Bid%5D/README.md): Deep worker execution cockpit (SSE terminal, trace, test verification, handover & graphify panel).
 
