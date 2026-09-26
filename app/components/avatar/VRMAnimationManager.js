@@ -77,6 +77,7 @@ export class VRMAnimationManager {
       cheering: '/avatar/animations/Cheering.fbx',
 
       // Casual Postures & Idles
+      custom_idle_8s: '/avatar/animations/CustomIdle8s.vrma',
       curious_leaning: '/avatar/animations/CuriousLeaning.vrma',
       hands_on_hips: '/avatar/animations/HandsOnHips.vrma',
       neck_stretch: '/avatar/animations/NeckStretch.vrma',

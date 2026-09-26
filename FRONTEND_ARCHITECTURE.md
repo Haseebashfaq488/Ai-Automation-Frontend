@@ -20,6 +20,7 @@ This directory / repository is the **standalone Next.js frontend** for the Jarvi
 | Route | File | Description |
 |---|---|---|
 | `/` | `app/page.js` | **Jarvis Assistant Hub**: Conversational AI chat, Antigravity brain orchestrator, quick actions, and real-time activity feed drawer. |
+| `/avatar-studio` | `app/avatar-studio/page.js` | **3D Avatar Testing Studio**: Full testing sandbox for VRM 3D avatar, motion capture library (44+ animations including custom Blender-generated 8s idle loop), facial blendshapes, camera presets, and real-time Edge Neural TTS speech choreography. |
 | `/workers` | `app/workers/page.js` | **Autonomous Worker Fleet Dashboard**: Create (fork) coding/automation workers, live status monitoring (running/completed/cancelled), search & filtering, and CLI launcher. |
 | `/worker/[id]` | `app/worker/[id]/page.js` | **Deep Worker Live Console**: Real-time terminal SSE stream, execution trace steps, tool inspection, user intervention, cancellation, and artifact browser. |
 

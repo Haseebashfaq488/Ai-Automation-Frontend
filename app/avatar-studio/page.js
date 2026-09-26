@@ -31,6 +31,7 @@ const GESTURE_CATEGORIES = {
   idle: {
     label: "🧘 Idle & Stances",
     items: [
+      { id: "custom_idle_8s", name: "Custom 8s Loop (Blinks & Sway)", icon: "✨", isLoop: true },
       { id: "cute_idle", name: "Cute Idle Sway", icon: "🎀", isLoop: true },
       { id: "happy_idle", name: "Upbeat Bounce", icon: "🎈", isLoop: true },
       { id: "relax", name: "Chill Relax", icon: "☕", isLoop: true },
