@@ -109,6 +109,19 @@ export function stopTTS() {
   }
 }
 
+export function cleanTextForSpeech(text) {
+  if (!text || typeof text !== "string") return "";
+  return text
+    .replace(/<<<[^>]+>>>/g, "") // strip inline gesture tags
+    .replace(/```[\s\S]*?```/g, "") // strip code blocks
+    .replace(/`[^`]*`/g, "") // strip inline code
+    .replace(/\[([^\]]+)\]\([^\)]+\)/g, "$1") // clean markdown links
+    .replace(/[\p{Extended_Pictographic}\p{Emoji}\u2600-\u27BF\uFE0E\uFE0F]/gu, "") // strip all emojis
+    .replace(/[*_~#]/g, "") // clean markdown styling
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /**
  * Synthesize and play speech for a given text message.
  * @param {string} text - Message containing text and optional <<<gesture>>> tags
@@ -124,11 +137,17 @@ export async function playTTS(text, { onStart, onPlay, onEnd, onError } = {}) {
     return;
   }
 
+  const sanitized = cleanTextForSpeech(text);
+  if (!sanitized) {
+    onEnd?.();
+    return;
+  }
+
   try {
     const res = await apiFetch("/agent/tts", {
       method: "POST",
       body: JSON.stringify({
-        text,
+        text: sanitized,
         voice: "en-US-AvaNeural",
       }),
     });
