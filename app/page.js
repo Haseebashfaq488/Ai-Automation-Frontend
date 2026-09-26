@@ -380,6 +380,15 @@ export default function Home() {
             <span>🎭</span>
             <span className="hidden sm:inline">Avatar</span>
           </button>
+          <Link
+            href="/avatar-studio"
+            title="Open 3D Avatar Testing Studio"
+            className="inline-flex items-center gap-1 sm:gap-1.5 rounded-xl border border-purple-700/60 bg-purple-950/60 px-2.5 sm:px-3.5 py-1 sm:py-1.5 text-xs font-semibold text-purple-200 shadow-sm transition hover:border-purple-500 hover:bg-purple-900/70 hover:text-white"
+          >
+            <span>✨</span>
+            <span className="hidden sm:inline">Avatar Studio</span>
+            <span className="sm:hidden">Studio</span>
+          </Link>
           <button
             onClick={newChat}
             disabled={busy}
@@ -456,6 +465,13 @@ export default function Home() {
               <span className="font-semibold text-zinc-200 flex items-center gap-1.5">
                 <span>🤖</span>
                 <span>Jarvis Live Avatar</span>
+                <Link
+                  href="/avatar-studio"
+                  title="Open Avatar Testing Studio"
+                  className="rounded bg-purple-950/80 px-1.5 py-0.5 text-[10px] font-mono text-purple-300 border border-purple-800/60 hover:bg-purple-900 transition"
+                >
+                  Studio ↗
+                </Link>
               </span>
               <div className="flex items-center gap-2">
                 <button

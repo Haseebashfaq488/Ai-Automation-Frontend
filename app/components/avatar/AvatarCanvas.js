@@ -76,7 +76,7 @@ export default function AvatarCanvas({
         choreographerRef.current = choreographer;
 
         setIsLoading(false);
-        if (onLoaded) onLoaded({ avatar, inspection });
+        if (onLoaded) onLoaded({ avatar, inspection, scene, choreographer });
 
         // Start render loop
         const clock = new THREE.Clock();
